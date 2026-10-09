@@ -5,6 +5,7 @@
 #include "common/path_util.h"
 #include "core/emulator_settings.h"
 #include "core/memory.h"
+#include "core/vr/eye_gaze.h"
 #include "shader_recompiler/runtime_info.h"
 #include "video_core/amdgpu/liverpool.h"
 #include "common/alignment.h"
@@ -99,43 +100,105 @@ static FoveationRings GetFoveationRings() {
 }
 
 vk::ImageView Rasterizer::FoveationMap(u32 width, u32 height) {
-    for (const auto& map : shading_rate_maps) {
+    ShadingRateMap* found = nullptr;
+    for (auto& map : shading_rate_maps) {
         if (map.width == width && map.height == height) {
-            return *map.view;
+            found = &map;
+            break;
         }
     }
-    // A handful of sizes at most (the scene's, as the emulator changes it with the load).
-    if (shading_rate_maps.size() >= 8) {
-        auto& oldest = shading_rate_maps.front();
-        scheduler.DeferOperation([allocator = instance.GetAllocator(), image = oldest.image,
-                                  allocation = oldest.allocation,
-                                  view = oldest.view.release(),
-                                  device = instance.GetDevice()] {
-            device.destroyImageView(view);
-            vmaDestroyImage(allocator, image, allocation);
-        });
-        shading_rate_maps.erase(shading_rate_maps.begin());
-    }
-
     const auto texel = instance.GetShadingRateTexelSize();
-    const u32 map_width = (width + texel.width - 1) / texel.width;
-    const u32 map_height = (height + texel.height - 1) / texel.height;
+    if (found == nullptr) {
+        // A handful of sizes at most (the scene's, as the emulator changes it with the load).
+        if (shading_rate_maps.size() >= 8) {
+            auto& oldest = shading_rate_maps.front();
+            scheduler.DeferOperation([allocator = instance.GetAllocator(), image = oldest.image,
+                                      allocation = oldest.allocation,
+                                      view = oldest.view.release(),
+                                      upload = std::move(oldest.upload),
+                                      device = instance.GetDevice()] {
+                device.destroyImageView(view);
+                vmaDestroyImage(allocator, image, allocation);
+            });
+            shading_rate_maps.erase(shading_rate_maps.begin());
+        }
+        ShadingRateMap map{.width = width, .height = height};
+        map.map_width = (width + texel.width - 1) / texel.width;
+        map.map_height = (height + texel.height - 1) / texel.height;
 
-    // The middle of the picture: where the draws' viewport has it, when the first draw of a
-    // pass this size covers most of the target (the scene is drawn into the top left of a
-    // target a little larger than it), else the middle of the target.
-    const auto& vp = liverpool->regs.viewports[0];
-    float center_x = width * 0.5f;
-    float center_y = height * 0.5f;
-    float half_x = width * 0.5f;
-    float half_y = height * 0.5f;
-    if (std::abs(vp.xscale) * 2.0f >= width * 0.75f && std::abs(vp.yscale) * 2.0f >= height * 0.75f) {
-        center_x = vp.xoffset;
-        center_y = vp.yoffset;
-        half_x = std::abs(vp.xscale);
-        half_y = std::abs(vp.yscale);
+        // The middle of the picture: where the draws' viewport has it, when the first draw
+        // of a pass this size covers most of the target (the scene is drawn into the top left
+        // of a target a little larger than it), else the middle of the target.
+        const auto& vp = liverpool->regs.viewports[0];
+        map.middle_x = width * 0.5f;
+        map.middle_y = height * 0.5f;
+        map.half_x = width * 0.5f;
+        map.half_y = height * 0.5f;
+        if (std::abs(vp.xscale) * 2.0f >= width * 0.75f &&
+            std::abs(vp.yscale) * 2.0f >= height * 0.75f) {
+            map.middle_x = vp.xoffset;
+            map.middle_y = vp.yoffset;
+            map.half_x = std::abs(vp.xscale);
+            map.half_y = std::abs(vp.yscale);
+        }
+
+        const vk::ImageCreateInfo image_ci = {
+            .imageType = vk::ImageType::e2D,
+            .format = vk::Format::eR8Uint,
+            .extent = {map.map_width, map.map_height, 1},
+            .mipLevels = 1,
+            .arrayLayers = 1,
+            .samples = vk::SampleCountFlagBits::e1,
+            .usage = vk::ImageUsageFlagBits::eFragmentShadingRateAttachmentKHR |
+                     vk::ImageUsageFlagBits::eTransferDst,
+        };
+        const VkImageCreateInfo image_ci_raw = static_cast<VkImageCreateInfo>(image_ci);
+        const VmaAllocationCreateInfo alloc_info = {.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE};
+        VmaAllocation allocation{};
+        if (vmaCreateImage(instance.GetAllocator(), &image_ci_raw, &alloc_info, &map.image,
+                           &allocation, nullptr) != VK_SUCCESS) {
+            LOG_ERROR(Render_Vulkan, "Foveation: could not make a shading rate image");
+            return {};
+        }
+        map.allocation = allocation;
+        auto [view_result, view] =
+            instance.GetDevice().createImageViewUnique(vk::ImageViewCreateInfo{
+                .image = map.image,
+                .viewType = vk::ImageViewType::e2D,
+                .format = vk::Format::eR8Uint,
+                .subresourceRange{
+                    .aspectMask = vk::ImageAspectFlagBits::eColor,
+                    .baseMipLevel = 0,
+                    .levelCount = 1,
+                    .baseArrayLayer = 0,
+                    .layerCount = 1,
+                },
+            });
+        if (view_result != vk::Result::eSuccess) {
+            vmaDestroyImage(instance.GetAllocator(), map.image, allocation);
+            return {};
+        }
+        map.view = std::move(view);
+        shading_rate_maps.push_back(std::move(map));
+        found = &shading_rate_maps.back();
     }
 
+    // Where the fine middle goes: where the eyes look this frame (OnFrame), on the texel grid,
+    // moved only once that is two texels or more away from where it is.
+    auto& map = *found;
+    const float want_x = map.middle_x + foveation_gaze_x * map.half_x;
+    const float want_y = map.middle_y + foveation_gaze_y * map.half_y;
+    const float step = static_cast<float>(texel.width);
+    if (map.filled && std::abs(want_x - map.center_x) < 2.0f * step &&
+        std::abs(want_y - map.center_y) < 2.0f * step) {
+        return *map.view;
+    }
+    FillFoveationMap(map, std::round(want_x / step) * step, std::round(want_y / step) * step);
+    return *map.view;
+}
+
+void Rasterizer::FillFoveationMap(ShadingRateMap& map, float center_x, float center_y) {
+    const auto texel = instance.GetShadingRateTexelSize();
     const auto rings = GetFoveationRings();
     // The rate a texel holds: log2 of the width of a fragment, shifted by 2, or'ed with log2
     // of its height.
@@ -144,57 +207,26 @@ vk::ImageView Rasterizer::FoveationMap(u32 width, u32 height) {
     constexpr u8 Rate4x4 = (2 << 2) | 2;
     const u8 outer_rate = rings.outer_4x4 && instance.HasShadingRate4x4() ? Rate4x4 : Rate2x2;
 
-    ShadingRateMap map{.width = width, .height = height};
-    const u64 size = static_cast<u64>(map_width) * map_height;
+    // The buffer the texels come from is kept until the GPU has copied them (the last one is
+    // let go of once this frame's work is done).
+    if (map.upload) {
+        scheduler.DeferOperation([old = std::move(map.upload)] {});
+    }
+    const u64 size = static_cast<u64>(map.map_width) * map.map_height;
     map.upload = std::make_unique<VideoCore::Buffer>(instance, scheduler,
                                                      VideoCore::MemoryUsage::Upload, 0,
                                                      vk::BufferUsageFlagBits::eTransferSrc, size);
     u32 counts[3]{};
-    for (u32 y = 0; y < map_height; ++y) {
-        for (u32 x = 0; x < map_width; ++x) {
-            const float dx = ((x + 0.5f) * texel.width - center_x) / half_x;
-            const float dy = ((y + 0.5f) * texel.height - center_y) / half_y;
+    for (u32 y = 0; y < map.map_height; ++y) {
+        for (u32 x = 0; x < map.map_width; ++x) {
+            const float dx = ((x + 0.5f) * texel.width - center_x) / map.half_x;
+            const float dy = ((y + 0.5f) * texel.height - center_y) / map.half_y;
             const float d = std::sqrt(dx * dx + dy * dy);
             const u8 rate = d < rings.inner ? Rate1x1 : d < rings.outer ? Rate2x2 : outer_rate;
-            map.upload->mapped_data[static_cast<size_t>(y) * map_width + x] = rate;
+            map.upload->mapped_data[static_cast<size_t>(y) * map.map_width + x] = rate;
             ++counts[rate == Rate1x1 ? 0 : rate == Rate2x2 ? 1 : 2];
         }
     }
-
-    const vk::ImageCreateInfo image_ci = {
-        .imageType = vk::ImageType::e2D,
-        .format = vk::Format::eR8Uint,
-        .extent = {map_width, map_height, 1},
-        .mipLevels = 1,
-        .arrayLayers = 1,
-        .samples = vk::SampleCountFlagBits::e1,
-        .usage = vk::ImageUsageFlagBits::eFragmentShadingRateAttachmentKHR |
-                 vk::ImageUsageFlagBits::eTransferDst,
-    };
-    const VkImageCreateInfo image_ci_raw = static_cast<VkImageCreateInfo>(image_ci);
-    const VmaAllocationCreateInfo alloc_info = {.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE};
-    if (vmaCreateImage(instance.GetAllocator(), &image_ci_raw, &alloc_info, &map.image,
-                       &map.allocation, nullptr) != VK_SUCCESS) {
-        LOG_ERROR(Render_Vulkan, "Foveation: could not make a shading rate image");
-        return {};
-    }
-    auto [view_result, view] = instance.GetDevice().createImageViewUnique(vk::ImageViewCreateInfo{
-        .image = map.image,
-        .viewType = vk::ImageViewType::e2D,
-        .format = vk::Format::eR8Uint,
-        .subresourceRange{
-            .aspectMask = vk::ImageAspectFlagBits::eColor,
-            .baseMipLevel = 0,
-            .levelCount = 1,
-            .baseArrayLayer = 0,
-            .layerCount = 1,
-        },
-    });
-    if (view_result != vk::Result::eSuccess) {
-        vmaDestroyImage(instance.GetAllocator(), map.image, map.allocation);
-        return {};
-    }
-    map.view = std::move(view);
 
     scheduler.EndRendering();
     const auto cmdbuf = scheduler.CommandBuffer();
@@ -203,17 +235,20 @@ vk::ImageView Rasterizer::FoveationMap(u32 width, u32 height) {
         .levelCount = 1,
         .layerCount = 1,
     };
+    // Passes before this one in the queue may still read what the image held.
     const vk::ImageMemoryBarrier to_transfer = {
         .srcAccessMask = {},
         .dstAccessMask = vk::AccessFlagBits::eTransferWrite,
-        .oldLayout = vk::ImageLayout::eUndefined,
+        .oldLayout = map.filled ? vk::ImageLayout::eFragmentShadingRateAttachmentOptimalKHR
+                                : vk::ImageLayout::eUndefined,
         .newLayout = vk::ImageLayout::eTransferDstOptimal,
         .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
         .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
         .image = map.image,
         .subresourceRange = range,
     };
-    cmdbuf.pipelineBarrier(vk::PipelineStageFlagBits::eTopOfPipe,
+    cmdbuf.pipelineBarrier(map.filled ? vk::PipelineStageFlagBits::eFragmentShadingRateAttachmentKHR
+                                      : vk::PipelineStageFlagBits::eTopOfPipe,
                            vk::PipelineStageFlagBits::eTransfer, {}, {}, {}, to_transfer);
     cmdbuf.copyBufferToImage(map.upload->Handle(), map.image,
                              vk::ImageLayout::eTransferDstOptimal,
@@ -222,7 +257,7 @@ vk::ImageView Rasterizer::FoveationMap(u32 width, u32 height) {
                                      .aspectMask = vk::ImageAspectFlagBits::eColor,
                                      .layerCount = 1,
                                  },
-                                 .imageExtent = {map_width, map_height, 1},
+                                 .imageExtent = {map.map_width, map.map_height, 1},
                              });
     const vk::ImageMemoryBarrier to_attachment = {
         .srcAccessMask = vk::AccessFlagBits::eTransferWrite,
@@ -238,16 +273,18 @@ vk::ImageView Rasterizer::FoveationMap(u32 width, u32 height) {
                            vk::PipelineStageFlagBits::eFragmentShadingRateAttachmentKHR, {}, {},
                            {}, to_attachment);
 
-    const u32 total = std::max(1u, counts[0] + counts[1] + counts[2]);
-    LOG_INFO(Render_Vulkan,
-             "Foveation: passes of {}x{} shade every pixel in {}% of the picture, every 2x2 in "
-             "{}%, every {} in {}% (middle at {:.0f},{:.0f})",
-             width, height, counts[0] * 100 / total, counts[1] * 100 / total,
-             outer_rate == Rate4x4 ? "4x4" : "2x2", counts[2] * 100 / total, center_x, center_y);
-
-    const vk::ImageView result = *map.view;
-    shading_rate_maps.push_back(std::move(map));
-    return result;
+    if (!map.filled) {
+        const u32 total = std::max(1u, counts[0] + counts[1] + counts[2]);
+        LOG_INFO(Render_Vulkan,
+                 "Foveation: passes of {}x{} shade every pixel in {}% of the picture, every 2x2 "
+                 "in {}%, every {} in {}% (middle at {:.0f},{:.0f}{})",
+                 map.width, map.height, counts[0] * 100 / total, counts[1] * 100 / total,
+                 outer_rate == Rate4x4 ? "4x4" : "2x2", counts[2] * 100 / total, map.middle_x,
+                 map.middle_y, foveation_follows_eyes ? ", following the eyes" : "");
+    }
+    map.filled = true;
+    map.center_x = center_x;
+    map.center_y = center_y;
 }
 
 static std::atomic<s32> g_draw_trace_budget{0};
@@ -330,6 +367,23 @@ void Rasterizer::ArmDrawDump() {
 
 void Rasterizer::OnFrame() {
     ++draw_dump_frame;
+
+    // Foveated rendering follows the eyes where the headset tells where they look: this
+    // frame's passes have the fine middle there. What the title draws reaches to its field of
+    // view's tangents; a gaze not told for half a second goes back to the middle.
+    if (instance.IsShadingRateAttachmentEnabled()) {
+        const auto gaze = Core::Vr::EyeGaze::Get(std::chrono::milliseconds{500});
+        const auto title = Core::Vr::EyeGaze::TitleTangents();
+        if (gaze && title && title->tan_x > 0.0f && title->tan_y > 0.0f) {
+            foveation_follows_eyes = true;
+            // (Not further out than the fine middle still covers the picture's edge.)
+            foveation_gaze_x = std::clamp(gaze->tan_x / title->tan_x, -0.85f, 0.85f);
+            foveation_gaze_y = std::clamp(-gaze->tan_y / title->tan_y, -0.85f, 0.85f);
+        } else {
+            foveation_gaze_x = 0.0f;
+            foveation_gaze_y = 0.0f;
+        }
+    }
     if (draw_dump_state == DrawDumpState::Armed) {
         draw_dump_dir = Common::FS::GetUserPath(Common::FS::PathType::UserDir) / "draw_dump";
         std::error_code ec;

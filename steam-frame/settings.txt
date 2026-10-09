@@ -33,9 +33,12 @@
 # Foveated rendering (an experiment): the scene is shaded more coarsely towards the edges of
 # the picture, where the lenses blur anyway, so the GPU has time for a larger picture. 0: off;
 # 1: mild (every pixel out to half way to the edge, 2x2 beyond); 2: medium (2x2 from 45%,
-# 4x4 from 75%); 3: strong (2x2 from 35%, 4x4 from 60%). The middle stays where it is (no eye
-# tracking).
+# 4x4 from 75%); 3: strong (2x2 from 35%, 4x4 from 60%).
 #foveation=0
+
+# 1: with foveation on, the fine middle follows where the eyes look (the Frame's eye tracking,
+# where SteamVR passes it on); 0: it stays in the middle of the picture.
+#eye_tracking=1
 
 # The most samples a pixel gets (1, 2, 4, 8; the game draws with 8). 1 (the default): no
 # multisampling, the fastest; the emulator smooths edges itself, unless antialias=0. 4: the

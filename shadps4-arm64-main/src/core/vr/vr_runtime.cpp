@@ -16,6 +16,7 @@
 #include "core/libraries/system/systemservice.h"
 #include "core/vr/headset_fov_cache.h"
 #include "core/vr/vr_host_link.h"
+#include "core/vr/eye_gaze.h"
 #include "core/vr/vr_runtime.h"
 #ifdef ENABLE_OPENXR_HOST
 #include "core/vr/openxr_host.h"
@@ -869,6 +870,10 @@ Fov Runtime::TitleFov() {
         std::scoped_lock lock{mutex};
         config.fov = fov;
     }
+    // For foveated rendering: how far the title's picture reaches, to place the eyes' gaze in
+    // it (the halves of each axis taken together where they differ).
+    EyeGaze::SetTitleTangents((fov.tan_out + fov.tan_in) * 0.5f,
+                              (fov.tan_top + fov.tan_bottom) * 0.5f);
     LOG_INFO(Core_Vr,
              "The title draws {:.0f}% of {}{}: {:.1f}/{:.1f}/{:.1f}/{:.1f} degrees an eye (out, in, "
              "up, down)",

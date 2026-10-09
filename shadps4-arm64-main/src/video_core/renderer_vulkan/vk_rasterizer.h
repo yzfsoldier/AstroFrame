@@ -167,12 +167,28 @@ private:
     struct ShadingRateMap {
         u32 width{};
         u32 height{};
+        u32 map_width{};
+        u32 map_height{};
+        /// The middle of the picture and how far it reaches each way, in pixels.
+        float middle_x{};
+        float middle_y{};
+        float half_x{};
+        float half_y{};
+        /// Where the fine middle is now (where the eyes looked).
+        float center_x{};
+        float center_y{};
+        bool filled{};
         VkImage image{};
         VmaAllocation_T* allocation{};
         vk::UniqueImageView view;
         std::unique_ptr<VideoCore::Buffer> upload;
     };
+    void FillFoveationMap(ShadingRateMap& map, float center_x, float center_y);
     std::vector<ShadingRateMap> shading_rate_maps;
+    /// Where the eyes look this frame, -1..1 across the picture (0: the middle).
+    float foveation_gaze_x{};
+    float foveation_gaze_y{};
+    bool foveation_follows_eyes{};
 
     ImageDumper image_dumper;
     enum class DrawDumpState : u8 { Off, Armed, Active };

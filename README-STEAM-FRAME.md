@@ -147,7 +147,8 @@ key and its default are explained in the file. The most useful:
 | `resolution=` | the size of the scene per eye: `816`, `960`, `1200`, `1440`, larger widths, or `game`; empty: the emulator chooses by what the GPU manages |
 | `msaa=1` | the most samples a pixel gets: 1 (the default) is fastest, the emulator smooths edges itself; `4` lets the game multisample as on the console, for more GPU time |
 | `sharpen=0.6` | sharpening, 0-1 |
-| `foveation=0` | foveated rendering, an experiment: `1`-`3` shade the scene ever more coarsely towards the edges of the picture (fixed, without eye tracking), for a larger picture in the same GPU time |
+| `foveation=0` | foveated rendering: `1`-`3` shade the scene ever more coarsely away from where you look, for a larger picture in the same GPU time (`2` is a good start) |
+| `eye_tracking=1` | with foveation, the sharp middle follows your eyes (the Frame's eye tracking through SteamVR); `0` keeps it in the middle of the picture |
 | `language=` | the game's language (`de-DE`, `fr-FR` ...); empty: the system's |
 | `window=1` | also open a window (for a Linux PC with a headset) |
 
@@ -201,7 +202,9 @@ For the Frame build (everything else is the emulator as it is):
   foveated rendering (`SHADPS4_FOVEATION=1..3`), through `VK_KHR_fragment_shading_rate` with
   an attachment: the passes that draw the scene (a colour and a depth target of 512 pixels or
   more) get a small image of the rate to shade at, every pixel in the middle and 2x2 or 4x4
-  pixels a fragment further out. Depth and edges stay exact at every pixel.
+  pixels a fragment further out. Depth and edges stay exact at every pixel. Where the runtime
+  tells where the eyes look (`XR_EXT_eye_gaze_interaction`, `src/core/vr/eye_gaze.h`), the fine
+  middle follows the gaze, moved once a frame (`SHADPS4_FOVEATION_EYES=0`: it stays put).
 - `src/video_core/...`: the mobile-GPU settings above, the pipeline cache warm-up skipped as
   under FEX on the Quest, and in `vk_platform.cpp` the OpenXR header included after the
   emulator's own (on Linux the Vulkan headers bring Xlib, whose `None` macro clashed).

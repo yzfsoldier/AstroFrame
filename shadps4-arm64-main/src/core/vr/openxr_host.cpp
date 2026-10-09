@@ -27,6 +27,7 @@
 #include "common/polyfill_thread.h"
 #include "common/singleton.h"
 #include "common/thread.h"
+#include "core/vr/eye_gaze.h"
 #include "core/vr/openxr_host.h"
 #include "input/controller.h"
 #include "input/pad_source.h"
@@ -335,6 +336,9 @@ struct OpenXrHost::Impl {
     bool found_at_connect{};
     bool hand_extension{};
     bool has_hand_tracking{};
+    // Where the eyes look (XR_EXT_eye_gaze_interaction), for foveated rendering.
+    bool eye_gaze_extension{};
+    bool has_eye_gaze{};
     bool has_refresh_rate{};
     bool has_audio_guid{};
     XrInstance instance{XR_NULL_HANDLE};
@@ -456,6 +460,10 @@ struct OpenXrHost::Impl {
     XrAction act_rumble{XR_NULL_HANDLE};
     XrPath hand_paths[2]{XR_NULL_PATH, XR_NULL_PATH};
     XrSpace controller_space{XR_NULL_HANDLE};
+    XrAction act_gaze{XR_NULL_HANDLE};
+    XrSpace gaze_space{XR_NULL_HANDLE};
+    bool gaze_seen{};
+    u32 gaze_lost_frames{};
     // Where each hand holds something, as far as the headset's runtime says where its own
     // controllers are: with a gamepad in both hands and those controllers put away, a runtime
     // that makes controllers up from the hands it sees (Virtual Desktop does) says where the
@@ -555,6 +563,16 @@ struct OpenXrHost::Impl {
             return offered_one;
         };
         hand_extension = track_hands && enable_if_offered(XR_EXT_HAND_TRACKING_EXTENSION_NAME);
+        // Only with foveated rendering, which is what it is for (SHADPS4_FOVEATION), unless
+        // SHADPS4_FOVEATION_EYES=0.
+        static const bool want_eye_gaze = [] {
+            const char* foveation = std::getenv("SHADPS4_FOVEATION");
+            const char* eyes = std::getenv("SHADPS4_FOVEATION_EYES");
+            return foveation != nullptr && foveation[0] != 0 && foveation[0] != '0' &&
+                   (eyes == nullptr || eyes[0] != '0');
+        }();
+        eye_gaze_extension =
+            want_eye_gaze && enable_if_offered(XR_EXT_EYE_GAZE_INTERACTION_EXTENSION_NAME);
         has_refresh_rate = enable_if_offered(XR_FB_DISPLAY_REFRESH_RATE_EXTENSION_NAME);
 #ifdef _WIN32
         has_audio_guid = enable_if_offered(XR_OCULUS_AUDIO_DEVICE_GUID_EXTENSION_NAME);
@@ -624,9 +642,15 @@ struct OpenXrHost::Impl {
 
         XrSystemHandTrackingPropertiesEXT hand_properties{
             XR_TYPE_SYSTEM_HAND_TRACKING_PROPERTIES_EXT};
+        XrSystemEyeGazeInteractionPropertiesEXT gaze_properties{
+            XR_TYPE_SYSTEM_EYE_GAZE_INTERACTION_PROPERTIES_EXT};
         XrSystemProperties properties{XR_TYPE_SYSTEM_PROPERTIES};
         if (hand_extension) {
             properties.next = &hand_properties;
+        }
+        if (eye_gaze_extension) {
+            gaze_properties.next = properties.next;
+            properties.next = &gaze_properties;
         }
         if (XR_FAILED(xrGetSystemProperties(instance, system, &properties))) {
             LOG_WARNING(Core_Vr, "The OpenXR runtime did not report its headset's identity");
@@ -640,6 +664,12 @@ struct OpenXrHost::Impl {
         max_swapchain_height = properties.graphicsProperties.maxSwapchainImageHeight;
         // (Asked every time: a headset that comes back may track hands where it did not.)
         const bool hands = hand_extension && hand_properties.supportsHandTracking == XR_TRUE;
+        has_eye_gaze =
+            eye_gaze_extension && gaze_properties.supportsEyeGazeInteraction == XR_TRUE;
+        if (eye_gaze_extension) {
+            LOG_INFO(Core_Vr, "The headset {} where the eyes look",
+                     has_eye_gaze ? "can tell" : "cannot tell");
+        }
 
         // What the runtime wants of the Vulkan side. It insists on being asked for its
         // requirements before a session is made.
@@ -1080,6 +1110,34 @@ struct OpenXrHost::Impl {
             }
         }
 
+        // Where the eyes look: an action of its own, with its own interaction profile.
+        if (has_eye_gaze) {
+            bool gaze_made = make(act_gaze, "eye_gaze", "Eye gaze", XR_ACTION_TYPE_POSE_INPUT);
+            XrPath gaze_path = XR_NULL_PATH;
+            gaze_made = gaze_made && XR_SUCCEEDED(xrStringToPath(
+                                         instance, "/user/eyes_ext/input/gaze_ext/pose",
+                                         &gaze_path));
+            if (gaze_made) {
+                const XrActionSuggestedBinding binding{act_gaze, gaze_path};
+                XrInteractionProfileSuggestedBinding suggested{
+                    XR_TYPE_INTERACTION_PROFILE_SUGGESTED_BINDING};
+                xrStringToPath(instance, "/interaction_profiles/ext/eye_gaze_interaction",
+                               &suggested.interactionProfile);
+                suggested.countSuggestedBindings = 1;
+                suggested.suggestedBindings = &binding;
+                if (const XrResult result =
+                        xrSuggestInteractionProfileBindings(instance, &suggested);
+                    XR_FAILED(result)) {
+                    LOG_WARNING(Core_Vr, "The headset's runtime takes no eye gaze binding: {}",
+                                ResultText(instance, result));
+                    gaze_made = false;
+                }
+            }
+            if (!gaze_made) {
+                act_gaze = XR_NULL_HANDLE;
+            }
+        }
+
         XrSessionActionSetsAttachInfo attach{XR_TYPE_SESSION_ACTION_SETS_ATTACH_INFO};
         attach.countActionSets = 1;
         attach.actionSets = &action_set;
@@ -1104,6 +1162,16 @@ struct OpenXrHost::Impl {
                 grip_spaces[hand] = XR_NULL_HANDLE;
             }
         }
+        if (act_gaze != XR_NULL_HANDLE) {
+            XrActionSpaceCreateInfo gaze_info{XR_TYPE_ACTION_SPACE_CREATE_INFO};
+            gaze_info.action = act_gaze;
+            gaze_info.poseInActionSpace.orientation.w = 1.0f;
+            if (XR_FAILED(xrCreateActionSpace(session, &gaze_info, &gaze_space))) {
+                gaze_space = XR_NULL_HANDLE;
+                LOG_WARNING(Core_Vr, "Where the eyes look cannot be located");
+            }
+        }
+        gaze_seen = false;
         actions_ready = true;
     }
 
@@ -1130,6 +1198,47 @@ struct OpenXrHost::Impl {
                  why);
     }
 
+    /// Where the eyes look, relative to the head, for foveated rendering (EyeGaze).
+    void UpdateEyeGaze(XrTime time) {
+        if (gaze_space == XR_NULL_HANDLE || view_space == XR_NULL_HANDLE) {
+            return;
+        }
+        XrActionStateGetInfo get{XR_TYPE_ACTION_STATE_GET_INFO};
+        get.action = act_gaze;
+        XrActionStatePose pose_state{XR_TYPE_ACTION_STATE_POSE};
+        XrSpaceLocation location{XR_TYPE_SPACE_LOCATION};
+        const bool located =
+            XR_SUCCEEDED(xrGetActionStatePose(session, &get, &pose_state)) &&
+            pose_state.isActive == XR_TRUE &&
+            XR_SUCCEEDED(xrLocateSpace(gaze_space, view_space, time, &location)) &&
+            (location.locationFlags & XR_SPACE_LOCATION_ORIENTATION_VALID_BIT) != 0;
+        if (!located) {
+            // (Blinks lose it for a moment; the renderer keeps the last for a while.)
+            if (gaze_seen && ++gaze_lost_frames == 300) {
+                LOG_INFO(Core_Vr, "The headset has not said where the eyes look for a while");
+            }
+            return;
+        }
+        gaze_lost_frames = 0;
+        // The direction the gaze points, -Z of its orientation, in the head's frame.
+        const XrQuaternionf& q = location.pose.orientation;
+        const float dir_x = -2.0f * (q.x * q.z + q.w * q.y);
+        const float dir_y = -2.0f * (q.y * q.z - q.w * q.x);
+        const float dir_z = -(1.0f - 2.0f * (q.x * q.x + q.y * q.y));
+        if (dir_z > -0.2f) {
+            return;
+        }
+        const float tan_x = dir_x / -dir_z;
+        const float tan_y = dir_y / -dir_z;
+        EyeGaze::Set(tan_x, tan_y);
+        if (!gaze_seen) {
+            gaze_seen = true;
+            LOG_INFO(Core_Vr, "The headset tells where the eyes look: now {:.0f} degrees "
+                              "right, {:.0f} up",
+                     std::atan(tan_x) * 57.29578f, std::atan(tan_y) * 57.29578f);
+        }
+    }
+
     /// Reads the headset's controllers and hands what they say on as the first player's
     /// gamepad, while the PC has no gamepad of its own or they were used after it.
     void UpdateControllers(XrTime time) {
@@ -1148,6 +1257,7 @@ struct OpenXrHost::Impl {
             return;
         }
         actions_synced = true;
+        UpdateEyeGaze(time);
         if (!use_controllers) {
             // Only where they are is of interest (see UpdatePad).
             return;
@@ -1539,6 +1649,11 @@ struct OpenXrHost::Impl {
             xrDestroySpace(controller_space);
             controller_space = XR_NULL_HANDLE;
         }
+        if (gaze_space != XR_NULL_HANDLE) {
+            xrDestroySpace(gaze_space);
+            gaze_space = XR_NULL_HANDLE;
+        }
+        act_gaze = XR_NULL_HANDLE;
         for (XrSpace& space : grip_spaces) {
             if (space != XR_NULL_HANDLE) {
                 xrDestroySpace(space);
