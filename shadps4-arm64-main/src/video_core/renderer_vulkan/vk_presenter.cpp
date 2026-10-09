@@ -933,7 +933,15 @@ HmdFrames Presenter::PrepareHmdFrame(std::span<const AmdGpu::Image, 2> eye_textu
     const float desktop_aspect = Core::Vr::DesktopViewAspect(
         desktop_view, fov, static_cast<float>(eye_width) / eye_height);
     Frame* const local = exported ? nullptr : vr_exporter->AcquireLocal(eye_width * 2, eye_height);
-    if (!exported) {
+    // Without a window (SHADPS4_HEADLESS, as on the Steam Frame) the window's look at the
+    // eyes' pictures is drawn for nobody: while the machine's own headset takes the frame, it
+    // is left out, and with it the window's pass, its overlay and its presentation.
+    static const bool window_frame_wanted = [] {
+        const char* value = std::getenv("SHADPS4_VR_WINDOW_FRAME");
+        return value != nullptr && value[0] == '1';
+    }();
+    const bool skip_window = swapchain.IsHeadless() && local != nullptr && !window_frame_wanted;
+    if (!exported && !skip_window) {
         expected_ratio = crop ? std::nullopt : std::optional{desktop_aspect};
         frame = GetRenderFrame();
         if (!frame && !local) {
