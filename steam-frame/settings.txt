@@ -39,6 +39,10 @@
 # Quest's Adreno GPU without multisampling. 0: the driver chooses.
 #tu_sysmem=1
 
+# 0: no barriers added between the writes to and reads from shared memory in the game's
+# compute shaders (they guard against tiles of the picture coming out black, in a grid).
+#lds_barriers=1
+
 # 0: the game counts time in frames, as on the console (slow motion whenever a frame takes
 # longer than a sixtieth of a second).
 #real_time=1

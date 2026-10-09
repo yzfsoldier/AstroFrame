@@ -150,6 +150,8 @@ if [[ "$msaa" == 1 && "$(setting tu_sysmem 1)" != 0 ]]; then
     export TU_DEBUG=${TU_DEBUG:+$TU_DEBUG,}sysmem
 fi
 [[ "$(setting real_time 1)" == 0 ]] && export SHADPS4_TITLE_TIMESTEP=0
+lds_barriers=$(setting lds_barriers)
+[[ -n "$lds_barriers" ]] && export SHADPS4_LDS_BARRIERS=$lds_barriers
 [[ "$(setting hands 1)" == 0 ]] && export SHADPS4_XR_HANDS=0
 [[ "$(setting controllers 1)" == 0 ]] && export SHADPS4_XR_CONTROLLERS=0
 [[ "$(setting controller_hand right)" == left ]] && export SHADPS4_XR_PAD_HAND=left

@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: Copyright 2024-2026 shadPS4 Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <cstdlib>
 #include <exception>
 #include <ranges>
 
@@ -248,6 +249,28 @@ const Shader::RuntimeInfo& PipelineCache::BuildRuntimeInfo(Stage stage, LogicalS
     return info;
 }
 
+/// Whether compute shaders get barriers between their writes to and reads from workgroup memory
+/// where the guest's have none. A GCN workgroup of 64 threads is one wave that runs in step, so
+/// the console's compilers leave them out; other GPUs need not run such a group in step, or
+/// their compilers reorder the accesses (NVIDIA; Apple's through KosmicKrisp; Turnip on the
+/// Steam Frame, where tiles of the title's compute passes came out black, in a grid).
+/// SHADPS4_LDS_BARRIERS=1 or 0 decides for any driver.
+static bool NeedsLdsBarriers(vk::DriverId driver) {
+    if (const char* value = std::getenv("SHADPS4_LDS_BARRIERS");
+        value != nullptr && value[0] != '\0') {
+        return value[0] != '0';
+    }
+    if (driver == vk::DriverId::eNvidiaProprietary || driver == vk::DriverId::eMesaKosmickrisp) {
+        return true;
+    }
+#ifdef ENABLE_STEAM_FRAME
+    if (driver == vk::DriverId::eMesaTurnip) {
+        return true;
+    }
+#endif
+    return false;
+}
+
 PipelineCache::PipelineCache(const Instance& instance_, Scheduler& scheduler_,
                              AmdGpu::Liverpool* liverpool_)
     : instance{instance_}, scheduler{scheduler_}, liverpool{liverpool_},
@@ -303,8 +326,7 @@ PipelineCache::PipelineCache(const Instance& instance_, Scheduler& scheduler_,
         .supports_fragment_shader_barycentric = instance_.IsFragmentShaderBarycentricSupported(),
         .needs_manual_interpolation = instance.IsFragmentShaderBarycentricSupported() &&
                                       instance.GetDriverID() == vk::DriverId::eNvidiaProprietary,
-        .needs_lds_barriers = instance.GetDriverID() == vk::DriverId::eNvidiaProprietary ||
-                              instance.GetDriverID() == vk::DriverId::eMesaKosmickrisp,
+        .needs_lds_barriers = NeedsLdsBarriers(instance.GetDriverID()),
         .needs_buffer_offsets = instance.StorageMinAlignment() > 4,
         .needs_unorm_fixup = instance.GetDriverID() == vk::DriverId::eMesaKosmickrisp,
         .needs_clip_distance_emulation = instance.GetDriverID() == vk::DriverId::eNvidiaProprietary,
