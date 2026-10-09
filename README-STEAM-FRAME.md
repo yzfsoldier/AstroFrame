@@ -36,7 +36,8 @@ microphone) the emulator does itself here, with the code the PC build has had fo
 Desktop and the Index. From the Quest build it keeps what suits a headset with a phone's GPU: the
 memory budget of a GPU that shares the system's memory, the GPU work sent in parts to a tiling
 GPU, the address-space layout FEX needs, and the defaults (field of view 85%, 90 Hz, the emulator
-choosing pace and picture size, sharpening).
+choosing pace and picture size, sharpening) - except multisampling, which stays on (4 samples):
+without it the game's edge pass leaves black blocks in the right eye.
 
 ## What you need
 
@@ -145,7 +146,7 @@ key and its default are explained in the file. The most useful:
 | `fov=85` | how much of the headset's field of view the game draws (50-100): less is sharper, with a soft border |
 | `refresh_rate=90` | the display rate asked for, where the runtime lets a program choose (otherwise SteamVR's setting applies): 45/30 fps at 90 Hz, 60/40/30 at 120 |
 | `resolution=` | the size of the scene per eye: `816`, `960`, `1200`, `1440`, larger widths, or `game`; empty: the emulator chooses by what the GPU manages |
-| `msaa=1` | multisampling off (much faster); `4` as on the console |
+| `msaa=4` | the most samples a pixel gets. The default, 4, lets the game's multisampling work; `1` is faster but leaves black blocks in steps along edges in the right eye |
 | `sharpen=0.6` | sharpening, 0-1 |
 | `language=` | the game's language (`de-DE`, `fr-FR` ...); empty: the system's |
 | `window=1` | also open a window (for a Linux PC with a headset) |
