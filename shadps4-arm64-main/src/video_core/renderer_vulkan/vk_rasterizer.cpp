@@ -100,6 +100,31 @@ static const std::vector<VAddr>& DrawDumpAddresses() {
     return addresses;
 }
 
+// SHADPS4_DBG_SYNC=1: after every draw and dispatch, everything it wrote is made visible to
+// everything after it (a full memory barrier, outside of rendering): where a picture comes out
+// right with it and wrong without, a barrier is missing somewhere.
+void Rasterizer::DebugSyncAfterWork() {
+    static const bool enabled = [] {
+        const char* value = std::getenv("SHADPS4_DBG_SYNC");
+        const bool on = value != nullptr && value[0] != 0 && value[0] != '0';
+        if (on) {
+            LOG_WARNING(Render_Vulkan, "SHADPS4_DBG_SYNC: a full barrier after every draw");
+        }
+        return on;
+    }();
+    if (!enabled) {
+        return;
+    }
+    scheduler.EndRendering();
+    const vk::MemoryBarrier barrier = {
+        .srcAccessMask = vk::AccessFlagBits::eMemoryWrite,
+        .dstAccessMask = vk::AccessFlagBits::eMemoryRead | vk::AccessFlagBits::eMemoryWrite,
+    };
+    scheduler.CommandBuffer().pipelineBarrier(vk::PipelineStageFlagBits::eAllCommands,
+                                              vk::PipelineStageFlagBits::eAllCommands, {},
+                                              barrier, {}, {});
+}
+
 void Rasterizer::ArmDrawDump() {
     if (!image_dumper) {
         LOG_WARNING(Render_Vulkan, "Draw dump asked for, but nothing to write pictures with");
@@ -161,7 +186,8 @@ void Rasterizer::DumpAfterDraw(const char* what, const GraphicsPipeline* pipelin
 
     // The colour target the draw wrote, or else the depth target alone decides whether the
     // draw is one of those wanted (a depth prepass).
-    const auto color_id = cb_descs[0].first;
+    // (cb_descs keeps the target of an earlier draw where this one has no colour target.)
+    const auto color_id = (key.mrt_mask & 1u) != 0 ? cb_descs[0].first : VideoCore::ImageId{};
     VAddr color_address = 0;
     bool dump_color = false;
     if (color_id) {
@@ -554,6 +580,7 @@ void Rasterizer::Draw(bool is_indexed, u32 index_offset) {
     }
 
     DumpAfterDraw("draw", pipeline);
+    DebugSyncAfterWork();
     ResetBindings();
     RetireIsolatedReadConstSnapshots();
 }
@@ -710,6 +737,7 @@ void Rasterizer::DrawIndirect(bool is_indexed, VAddr arg_address, u32 offset, u3
     }
 
     DumpAfterDraw("indirect", pipeline);
+    DebugSyncAfterWork();
     ResetBindings();
     RetireIsolatedReadConstSnapshots();
 }
@@ -755,6 +783,7 @@ void Rasterizer::DispatchDirect() {
     const auto cmdbuf = scheduler.CommandBuffer();
     cmdbuf.bindPipeline(vk::PipelineBindPoint::eCompute, pipeline->Handle());
     cmdbuf.dispatch(cs_program.dim_x, cs_program.dim_y, cs_program.dim_z);
+    DebugSyncAfterWork();
 
     ResetBindings();
 }
@@ -785,6 +814,7 @@ void Rasterizer::DispatchIndirect(VAddr address, u32 offset, u32 size) {
     const auto cmdbuf = scheduler.CommandBuffer();
     cmdbuf.bindPipeline(vk::PipelineBindPoint::eCompute, pipeline->Handle());
     cmdbuf.dispatchIndirect(buffer->Handle(), base);
+    DebugSyncAfterWork();
 
     ResetBindings();
 }

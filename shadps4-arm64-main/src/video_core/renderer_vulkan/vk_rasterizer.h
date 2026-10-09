@@ -155,6 +155,7 @@ private:
     friend class VideoCore::BufferCache;
 
     void DumpAfterDraw(const char* what, const GraphicsPipeline* pipeline);
+    void DebugSyncAfterWork();
     void DumpGuestTarget(const char* what, u32 cb);
     bool DrawDumpWanted(VAddr address, u32 width) const;
 
