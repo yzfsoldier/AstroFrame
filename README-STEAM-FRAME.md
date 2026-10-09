@@ -6,10 +6,9 @@ so the emulator does not need an Android app around it (and not Lepton, the Fram
 layer): it runs as an ordinary Linux ARM64 program and shows the game through the headset's own
 OpenXR runtime.
 
-> **Status: built, not yet played.** The emulator with FEX and the OpenXR host compiles and links
-> for aarch64 Linux (cross-compiled with clang 19), and the program starts under qemu as far as
-> its command line, but nobody has run it on a Steam Frame yet. Expect to have to look at the
-> logs. Please report what you find.
+> **Status: plays on a Steam Frame.** Built in the Steam Linux Runtime's arm64 SDK (on an x86
+> PC too, in that SDK's container under emulation), started through the Devkit Client, shown
+> through SteamVR's OpenXR runtime. Still early: please report what you find.
 
 > **No game files are included or distributed.** You need your own copy of ASTRO BOT Rescue
 > Mission (CUSA12392, version 1.00 or 1.04), dumped from your own PlayStation 4 - the same as for
@@ -146,7 +145,7 @@ key and its default are explained in the file. The most useful:
 | `fov=85` | how much of the headset's field of view the game draws (50-100): less is sharper, with a soft border |
 | `refresh_rate=90` | the display rate asked for, where the runtime lets a program choose (otherwise SteamVR's setting applies): 45/30 fps at 90 Hz, 60/40/30 at 120 |
 | `resolution=` | the size of the scene per eye: `816`, `960`, `1200`, `1440`, larger widths, or `game`; empty: the emulator chooses by what the GPU manages |
-| `msaa=4` | the most samples a pixel gets. The default, 4, lets the game's multisampling work; `1` is faster but leaves black blocks in steps along edges in the right eye |
+| `msaa=1` | the most samples a pixel gets: 1 (the default) is fastest, the emulator smooths edges itself; `4` lets the game multisample as on the console, for more GPU time |
 | `sharpen=0.6` | sharpening, 0-1 |
 | `language=` | the game's language (`de-DE`, `fr-FR` ...); empty: the system's |
 | `window=1` | also open a window (for a Linux PC with a headset) |
@@ -192,6 +191,11 @@ For the Frame build (everything else is the emulator as it is):
 - `src/core/address_space.cpp`: the Frame lays the console's address space out the way the
   Quest build does (at the console's own addresses, below and around whatever the process has
   mapped already: FEX does not offset addresses, and SteamVR's libraries are in the process).
+- `src/video_core/renderer_vulkan/vk_scheduler.cpp`: a barrier before every render pass, for
+  what the passes before it drew (`SHADPS4_PASS_BARRIER`, on in the Frame build). The texture
+  cache leaves it out where an image stays a target from one pass to the next; with the driver
+  drawing straight into memory (`TU_DEBUG=sysmem`, as without multisampling) passes overlapped
+  and the right eye's picture had black squares along its edges.
 - `src/video_core/...`: the mobile-GPU settings above, the pipeline cache warm-up skipped as
   under FEX on the Quest, and in `vk_platform.cpp` the OpenXR header included after the
   emulator's own (on Linux the Vulkan headers bring Xlib, whose `None` macro clashed).

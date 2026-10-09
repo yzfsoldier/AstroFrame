@@ -143,10 +143,8 @@ esac
 
 sharpen=$(setting sharpen 0.6)
 [[ "$sharpen" != 0 ]] && export SHADPS4_VR_SHARPEN=$sharpen
-# 4 samples a pixel by default: with fewer than the game's own (8), its pass at the edges of the
-# right eye's picture finds samples missing and leaves black blocks there, in steps along every
-# edge. (msaa=1 is faster, with those blocks.)
-msaa=$(setting msaa 4)
+# One sample a pixel by default (the emulator smooths edges itself), as on the Quest: the fastest.
+msaa=$(setting msaa 1)
 export SHADPS4_MAX_MSAA=$msaa
 [[ "$(setting antialias 1)" == 0 ]] && export SHADPS4_RESOLVE_AA=0
 if [[ "$msaa" == 1 && "$(setting tu_sysmem 1)" != 0 ]]; then

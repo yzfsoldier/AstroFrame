@@ -30,11 +30,10 @@
 # Sharpening of every frame of the game, 0 (none) to 1.
 #sharpen=0.6
 
-# The most samples a pixel gets (1, 2, 4, 8). 4 (the default) lets the game's multisampling
-# work: it draws with 8, and with fewer than 2 its pass over the edges leaves black blocks in
-# steps along them in the right eye's picture. 1: no multisampling, faster, with those blocks;
-# the emulator then smooths edges itself, unless antialias=0.
-#msaa=4
+# The most samples a pixel gets (1, 2, 4, 8; the game draws with 8). 1 (the default): no
+# multisampling, the fastest; the emulator smooths edges itself, unless antialias=0. 4: the
+# game's own multisampling, sharper edges, more GPU time.
+#msaa=1
 #antialias=1
 
 # 1: with msaa=1, the GPU driver draws without its tiled mode, which was faster for this game on
