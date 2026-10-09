@@ -30,6 +30,13 @@
 # Sharpening of every frame of the game, 0 (none) to 1.
 #sharpen=0.6
 
+# Foveated rendering (an experiment): the scene is shaded more coarsely towards the edges of
+# the picture, where the lenses blur anyway, so the GPU has time for a larger picture. 0: off;
+# 1: mild (every pixel out to half way to the edge, 2x2 beyond); 2: medium (2x2 from 45%,
+# 4x4 from 75%); 3: strong (2x2 from 35%, 4x4 from 60%). The middle stays where it is (no eye
+# tracking).
+#foveation=0
+
 # The most samples a pixel gets (1, 2, 4, 8; the game draws with 8). 1 (the default): no
 # multisampling, the fastest; the emulator smooths edges itself, unless antialias=0. 4: the
 # game's own multisampling, sharper edges, more GPU time.

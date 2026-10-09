@@ -120,6 +120,31 @@ public:
     }
 
     /// Returns true if VK_EXT_attachment_feedback_loop_layout is supported
+    /// Whether passes can be drawn with a coarser shading rate where an image says so
+    /// (VK_KHR_fragment_shading_rate with an attachment), for foveated rendering. Only turned on
+    /// when SHADPS4_FOVEATION asks for it.
+    bool IsShadingRateAttachmentEnabled() const {
+        return shading_rate_attachment;
+    }
+    /// The size of the pixel blocks one texel of a shading rate image stands for.
+    vk::Extent2D GetShadingRateTexelSize() const {
+        return shading_rate_texel_size;
+    }
+    /// Whether a rate of 4x4 / 2x2 pixels a fragment can be had.
+    bool HasShadingRate4x4() const {
+        return shading_rate_4x4;
+    }
+    bool HasShadingRate2x2() const {
+        return shading_rate_2x2;
+    }
+    /// Whether a coarse rate may be used with shaders that write depth/stencil or a sample mask.
+    bool ShadingRateWithDepthWrites() const {
+        return shading_rate_with_depth_writes;
+    }
+    bool ShadingRateWithSampleMask() const {
+        return shading_rate_with_sample_mask;
+    }
+
     bool IsAttachmentFeedbackLoopLayoutSupported() const {
         return attachment_feedback_loop;
     }
@@ -561,6 +586,12 @@ private:
     bool workgroup_memory_explicit_layout{};
     bool maintenance_8{};
     bool attachment_feedback_loop{};
+    bool shading_rate_attachment{};
+    vk::Extent2D shading_rate_texel_size{};
+    bool shading_rate_4x4{};
+    bool shading_rate_2x2{};
+    bool shading_rate_with_depth_writes{};
+    bool shading_rate_with_sample_mask{};
     bool image_2d_view_of_3d{};
     bool supports_memory_budget{};
     bool external_memory_dma_buf{};

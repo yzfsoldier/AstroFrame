@@ -47,6 +47,8 @@ struct RenderState {
     u16 height;
     u16 num_layers;
     u16 num_color_attachments;
+    /// Where the pass shades coarser (foveated rendering), or none.
+    vk::ImageView shading_rate_view{};
 
     bool operator==(const RenderState& other) const noexcept {
         return std::memcmp(this, &other, sizeof(RenderState)) == 0;

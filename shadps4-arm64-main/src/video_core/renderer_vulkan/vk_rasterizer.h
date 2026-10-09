@@ -17,6 +17,8 @@
 #include "video_core/renderer_vulkan/vk_pipeline_cache.h"
 #include "video_core/texture_cache/texture_cache.h"
 
+struct VmaAllocation_T;
+
 namespace AmdGpu {
 struct Liverpool;
 }
@@ -158,6 +160,19 @@ private:
     void DebugSyncAfterWork();
     void DumpGuestTarget(const char* what, u32 cb);
     bool DrawDumpWanted(VAddr address, u32 width) const;
+
+    /// Foveated rendering: the shading rate image for passes of this size (made the first
+    /// time), fine in the middle of the picture and coarser towards its edges.
+    vk::ImageView FoveationMap(u32 width, u32 height);
+    struct ShadingRateMap {
+        u32 width{};
+        u32 height{};
+        VkImage image{};
+        VmaAllocation_T* allocation{};
+        vk::UniqueImageView view;
+        std::unique_ptr<VideoCore::Buffer> upload;
+    };
+    std::vector<ShadingRateMap> shading_rate_maps;
 
     ImageDumper image_dumper;
     enum class DrawDumpState : u8 { Off, Armed, Active };

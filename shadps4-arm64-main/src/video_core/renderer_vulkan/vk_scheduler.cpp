@@ -416,6 +416,9 @@ static bool ContinuesPass(const RenderState& current, const RenderState& next) {
             return false;
         }
     }
+    if (current.shading_rate_view != next.shading_rate_view) {
+        return false;
+    }
     const auto& ours = current.depth_stencil_attachment;
     const auto& theirs = next.depth_stencil_attachment;
     return ours.image_view == theirs.image_view && ours.image_layout == theirs.image_layout &&
@@ -509,7 +512,14 @@ void Scheduler::BeginRendering(const RenderState& new_state) {
                                          vk::ClearDepthStencilValue{.stencil = db.clear_value[1]}},
     };
 
+    const vk::RenderingFragmentShadingRateAttachmentInfoKHR shading_rate_attachment = {
+        .imageView = render_state.shading_rate_view,
+        .imageLayout = vk::ImageLayout::eFragmentShadingRateAttachmentOptimalKHR,
+        .shadingRateAttachmentTexelSize = instance.GetShadingRateTexelSize(),
+    };
+
     const vk::RenderingInfo rendering_info = {
+        .pNext = render_state.shading_rate_view ? &shading_rate_attachment : nullptr,
         .renderArea =
             {
                 .offset = {0, 0},

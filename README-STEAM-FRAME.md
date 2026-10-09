@@ -147,6 +147,7 @@ key and its default are explained in the file. The most useful:
 | `resolution=` | the size of the scene per eye: `816`, `960`, `1200`, `1440`, larger widths, or `game`; empty: the emulator chooses by what the GPU manages |
 | `msaa=1` | the most samples a pixel gets: 1 (the default) is fastest, the emulator smooths edges itself; `4` lets the game multisample as on the console, for more GPU time |
 | `sharpen=0.6` | sharpening, 0-1 |
+| `foveation=0` | foveated rendering, an experiment: `1`-`3` shade the scene ever more coarsely towards the edges of the picture (fixed, without eye tracking), for a larger picture in the same GPU time |
 | `language=` | the game's language (`de-DE`, `fr-FR` ...); empty: the system's |
 | `window=1` | also open a window (for a Linux PC with a headset) |
 
@@ -196,6 +197,11 @@ For the Frame build (everything else is the emulator as it is):
   cache leaves it out where an image stays a target from one pass to the next; with the driver
   drawing straight into memory (`TU_DEBUG=sysmem`, as without multisampling) passes overlapped
   and the right eye's picture had black squares along its edges.
+- `vk_instance.cpp`, `vk_graphics_pipeline.cpp`, `vk_rasterizer.cpp`, `vk_scheduler.cpp`:
+  foveated rendering (`SHADPS4_FOVEATION=1..3`), through `VK_KHR_fragment_shading_rate` with
+  an attachment: the passes that draw the scene (a colour and a depth target of 512 pixels or
+  more) get a small image of the rate to shade at, every pixel in the middle and 2x2 or 4x4
+  pixels a fragment further out. Depth and edges stay exact at every pixel.
 - `src/video_core/...`: the mobile-GPU settings above, the pipeline cache warm-up skipped as
   under FEX on the Quest, and in `vk_platform.cpp` the OpenXR header included after the
   emulator's own (on Linux the Vulkan headers bring Xlib, whose `None` macro clashed).

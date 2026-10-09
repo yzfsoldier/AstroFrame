@@ -18,6 +18,7 @@
 #include <algorithm>
 #include <array>
 #include <bit>
+#include <cmath>
 
 #include <vk_mem_alloc.h>
 #include "video_core/texture_cache/image_view.h"
@@ -53,7 +54,201 @@ Rasterizer::Rasterizer(const Instance& instance_, Scheduler& scheduler_,
     memory->SetRasterizer(this);
 }
 
-Rasterizer::~Rasterizer() = default;
+Rasterizer::~Rasterizer() {
+    for (auto& map : shading_rate_maps) {
+        map.view.reset();
+        vmaDestroyImage(instance.GetAllocator(), map.image, map.allocation);
+    }
+}
+
+// Foveated rendering, SHADPS4_FOVEATION=<1..3>: the passes that draw the scene (a colour and a
+// depth target, 512 pixels or more each way) are shaded once for every 2x2 or 4x4 pixels away
+// from the middle of the picture, where the lenses blur anyway and the eye seldom looks. Depth
+// and edges stay exact at every pixel; only the colour is computed for fewer of them.
+//   1: every pixel out to half way to the edge, 2x2 beyond (mild)
+//   2: every pixel out to 45%, 2x2 out to 75%, 4x4 beyond
+//   3: every pixel out to 35%, 2x2 out to 60%, 4x4 beyond (strong)
+// SHADPS4_FOVEATION_INNER / _OUTER=<0..1.5> move the two rings (1 is the middle of an edge of
+// the picture, 1.41 its corner).
+struct FoveationRings {
+    float inner;
+    float outer;
+    bool outer_4x4;
+};
+
+static FoveationRings GetFoveationRings() {
+    static const FoveationRings rings = [] {
+        const char* level_text = std::getenv("SHADPS4_FOVEATION");
+        const int level = level_text != nullptr ? std::atoi(level_text) : 0;
+        FoveationRings result{0.45f, 0.75f, true};
+        if (level <= 1) {
+            result = {0.5f, 9.0f, false};
+        } else if (level >= 3) {
+            result = {0.35f, 0.6f, true};
+        }
+        if (const char* inner = std::getenv("SHADPS4_FOVEATION_INNER"); inner != nullptr) {
+            result.inner = static_cast<float>(std::atof(inner));
+        }
+        if (const char* outer = std::getenv("SHADPS4_FOVEATION_OUTER"); outer != nullptr) {
+            result.outer = static_cast<float>(std::atof(outer));
+            result.outer_4x4 = true;
+        }
+        return result;
+    }();
+    return rings;
+}
+
+vk::ImageView Rasterizer::FoveationMap(u32 width, u32 height) {
+    for (const auto& map : shading_rate_maps) {
+        if (map.width == width && map.height == height) {
+            return *map.view;
+        }
+    }
+    // A handful of sizes at most (the scene's, as the emulator changes it with the load).
+    if (shading_rate_maps.size() >= 8) {
+        auto& oldest = shading_rate_maps.front();
+        scheduler.DeferOperation([allocator = instance.GetAllocator(), image = oldest.image,
+                                  allocation = oldest.allocation,
+                                  view = oldest.view.release(),
+                                  device = instance.GetDevice()] {
+            device.destroyImageView(view);
+            vmaDestroyImage(allocator, image, allocation);
+        });
+        shading_rate_maps.erase(shading_rate_maps.begin());
+    }
+
+    const auto texel = instance.GetShadingRateTexelSize();
+    const u32 map_width = (width + texel.width - 1) / texel.width;
+    const u32 map_height = (height + texel.height - 1) / texel.height;
+
+    // The middle of the picture: where the draws' viewport has it, when the first draw of a
+    // pass this size covers most of the target (the scene is drawn into the top left of a
+    // target a little larger than it), else the middle of the target.
+    const auto& vp = liverpool->regs.viewports[0];
+    float center_x = width * 0.5f;
+    float center_y = height * 0.5f;
+    float half_x = width * 0.5f;
+    float half_y = height * 0.5f;
+    if (std::abs(vp.xscale) * 2.0f >= width * 0.75f && std::abs(vp.yscale) * 2.0f >= height * 0.75f) {
+        center_x = vp.xoffset;
+        center_y = vp.yoffset;
+        half_x = std::abs(vp.xscale);
+        half_y = std::abs(vp.yscale);
+    }
+
+    const auto rings = GetFoveationRings();
+    // The rate a texel holds: log2 of the width of a fragment, shifted by 2, or'ed with log2
+    // of its height.
+    constexpr u8 Rate1x1 = 0;
+    constexpr u8 Rate2x2 = (1 << 2) | 1;
+    constexpr u8 Rate4x4 = (2 << 2) | 2;
+    const u8 outer_rate = rings.outer_4x4 && instance.HasShadingRate4x4() ? Rate4x4 : Rate2x2;
+
+    ShadingRateMap map{.width = width, .height = height};
+    const u64 size = static_cast<u64>(map_width) * map_height;
+    map.upload = std::make_unique<VideoCore::Buffer>(instance, scheduler,
+                                                     VideoCore::MemoryUsage::Upload, 0,
+                                                     vk::BufferUsageFlagBits::eTransferSrc, size);
+    u32 counts[3]{};
+    for (u32 y = 0; y < map_height; ++y) {
+        for (u32 x = 0; x < map_width; ++x) {
+            const float dx = ((x + 0.5f) * texel.width - center_x) / half_x;
+            const float dy = ((y + 0.5f) * texel.height - center_y) / half_y;
+            const float d = std::sqrt(dx * dx + dy * dy);
+            const u8 rate = d < rings.inner ? Rate1x1 : d < rings.outer ? Rate2x2 : outer_rate;
+            map.upload->mapped_data[static_cast<size_t>(y) * map_width + x] = rate;
+            ++counts[rate == Rate1x1 ? 0 : rate == Rate2x2 ? 1 : 2];
+        }
+    }
+
+    const vk::ImageCreateInfo image_ci = {
+        .imageType = vk::ImageType::e2D,
+        .format = vk::Format::eR8Uint,
+        .extent = {map_width, map_height, 1},
+        .mipLevels = 1,
+        .arrayLayers = 1,
+        .samples = vk::SampleCountFlagBits::e1,
+        .usage = vk::ImageUsageFlagBits::eFragmentShadingRateAttachmentKHR |
+                 vk::ImageUsageFlagBits::eTransferDst,
+    };
+    const VkImageCreateInfo image_ci_raw = static_cast<VkImageCreateInfo>(image_ci);
+    const VmaAllocationCreateInfo alloc_info = {.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE};
+    if (vmaCreateImage(instance.GetAllocator(), &image_ci_raw, &alloc_info, &map.image,
+                       &map.allocation, nullptr) != VK_SUCCESS) {
+        LOG_ERROR(Render_Vulkan, "Foveation: could not make a shading rate image");
+        return {};
+    }
+    auto [view_result, view] = instance.GetDevice().createImageViewUnique(vk::ImageViewCreateInfo{
+        .image = map.image,
+        .viewType = vk::ImageViewType::e2D,
+        .format = vk::Format::eR8Uint,
+        .subresourceRange{
+            .aspectMask = vk::ImageAspectFlagBits::eColor,
+            .baseMipLevel = 0,
+            .levelCount = 1,
+            .baseArrayLayer = 0,
+            .layerCount = 1,
+        },
+    });
+    if (view_result != vk::Result::eSuccess) {
+        vmaDestroyImage(instance.GetAllocator(), map.image, map.allocation);
+        return {};
+    }
+    map.view = std::move(view);
+
+    scheduler.EndRendering();
+    const auto cmdbuf = scheduler.CommandBuffer();
+    const vk::ImageSubresourceRange range = {
+        .aspectMask = vk::ImageAspectFlagBits::eColor,
+        .levelCount = 1,
+        .layerCount = 1,
+    };
+    const vk::ImageMemoryBarrier to_transfer = {
+        .srcAccessMask = {},
+        .dstAccessMask = vk::AccessFlagBits::eTransferWrite,
+        .oldLayout = vk::ImageLayout::eUndefined,
+        .newLayout = vk::ImageLayout::eTransferDstOptimal,
+        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .image = map.image,
+        .subresourceRange = range,
+    };
+    cmdbuf.pipelineBarrier(vk::PipelineStageFlagBits::eTopOfPipe,
+                           vk::PipelineStageFlagBits::eTransfer, {}, {}, {}, to_transfer);
+    cmdbuf.copyBufferToImage(map.upload->Handle(), map.image,
+                             vk::ImageLayout::eTransferDstOptimal,
+                             vk::BufferImageCopy{
+                                 .imageSubresource{
+                                     .aspectMask = vk::ImageAspectFlagBits::eColor,
+                                     .layerCount = 1,
+                                 },
+                                 .imageExtent = {map_width, map_height, 1},
+                             });
+    const vk::ImageMemoryBarrier to_attachment = {
+        .srcAccessMask = vk::AccessFlagBits::eTransferWrite,
+        .dstAccessMask = vk::AccessFlagBits::eFragmentShadingRateAttachmentReadKHR,
+        .oldLayout = vk::ImageLayout::eTransferDstOptimal,
+        .newLayout = vk::ImageLayout::eFragmentShadingRateAttachmentOptimalKHR,
+        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .image = map.image,
+        .subresourceRange = range,
+    };
+    cmdbuf.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer,
+                           vk::PipelineStageFlagBits::eFragmentShadingRateAttachmentKHR, {}, {},
+                           {}, to_attachment);
+
+    const u32 total = std::max(1u, counts[0] + counts[1] + counts[2]);
+    LOG_INFO(Render_Vulkan,
+             "Foveation: passes of {}x{} shade every pixel in {}% of the picture, every 2x2 in "
+             "{}%, every {} in {}% (middle at {:.0f},{:.0f})",
+             width, height, counts[0] * 100 / total, counts[1] * 100 / total,
+             outer_rate == Rate4x4 ? "4x4" : "2x2", counts[2] * 100 / total, center_x, center_y);
+
+    const vk::ImageView result = *map.view;
+    shading_rate_maps.push_back(std::move(map));
+    return result;
+}
 
 static std::atomic<s32> g_draw_trace_budget{0};
 
@@ -1543,6 +1738,20 @@ RenderState Rasterizer::BeginRendering(const GraphicsPipeline* pipeline) {
 
     if (state.num_layers == std::numeric_limits<u16>::max()) {
         state.num_layers = 1;
+    }
+
+    // Foveated rendering (SHADPS4_FOVEATION) for the passes that draw the scene: colour and
+    // depth targets of 512 pixels or more each way, one layer.
+    if (instance.IsShadingRateAttachmentEnabled() && state.depth_stencil_attachment.image_view &&
+        state.num_layers == 1 && state.width >= 512 && state.height >= 512 &&
+        state.width < instance.GetMaxFramebufferWidth()) {
+        bool has_color = false;
+        for (u32 cb = 0; cb < state.num_color_attachments; ++cb) {
+            has_color |= static_cast<bool>(state.color_attachments[cb].image_view);
+        }
+        if (has_color) {
+            state.shading_rate_view = FoveationMap(state.width, state.height);
+        }
     }
 
     return state;

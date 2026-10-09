@@ -353,8 +353,34 @@ GraphicsPipeline::GraphicsPipeline(
     // In practice, we use dynamic state for all of it.
     constexpr vk::PipelineDepthStencilStateCreateInfo depth_stencil_info = {};
 
-    const vk::GraphicsPipelineCreateInfo pipeline_info = {
+    // Foveated rendering: the rate the pass's shading rate image gives replaces the pipeline's
+    // (1x1). Not for shaders that write depth, stencil or a sample mask where the GPU cannot
+    // shade those coarser: they keep to every pixel.
+    vk::PipelineFragmentShadingRateStateCreateInfoKHR shading_rate_state{
         .pNext = &pipeline_rendering_ci,
+        .fragmentSize = vk::Extent2D{1, 1},
+        .combinerOps = std::array{vk::FragmentShadingRateCombinerOpKHR::eKeep,
+                                  vk::FragmentShadingRateCombinerOpKHR::eReplace},
+    };
+    const bool shading_rate = instance.IsShadingRateAttachmentEnabled();
+    if (shading_rate) {
+        const auto* fs = stages[static_cast<u32>(Shader::LogicalStage::Fragment)];
+        const bool writes_depth =
+            fs != nullptr && (fs->stores.Get(Shader::IR::Attribute::Depth) ||
+                              fs->stores.Get(Shader::IR::Attribute::StencilRef));
+        const bool writes_mask = fs != nullptr && fs->stores.Get(Shader::IR::Attribute::SampleMask);
+        if ((writes_depth && !instance.ShadingRateWithDepthWrites()) ||
+            (writes_mask && !instance.ShadingRateWithSampleMask())) {
+            shading_rate_state.combinerOps[1] = vk::FragmentShadingRateCombinerOpKHR::eKeep;
+        }
+    }
+
+    const vk::GraphicsPipelineCreateInfo pipeline_info = {
+        .pNext = shading_rate ? static_cast<const void*>(&shading_rate_state)
+                              : static_cast<const void*>(&pipeline_rendering_ci),
+        .flags = shading_rate
+                     ? vk::PipelineCreateFlagBits::eRenderingFragmentShadingRateAttachmentKHR
+                     : vk::PipelineCreateFlags{},
         .stageCount = static_cast<u32>(shader_stages.size()),
         .pStages = shader_stages.data(),
         .pVertexInputState = !instance.IsVertexInputDynamicState() ? &vertex_input_info : nullptr,
