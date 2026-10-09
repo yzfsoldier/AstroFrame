@@ -507,6 +507,17 @@ Presenter::Presenter(Frontend::WindowSDL& window_, AmdGpu::Liverpool* liverpool_
     const u32 num_images = swapchain.GetImageCount();
     const vk::Device device = instance.GetDevice();
 
+    rasterizer->SetImageDumper([this](VideoCore::Image& image, const std::filesystem::path& path,
+                                      bool depth) {
+        static const u32 width = [] {
+            const char* value = std::getenv("SHADPS4_DBG_DRAW_DUMP_WIDTH");
+            const int parsed = value != nullptr ? std::atoi(value) : 0;
+            return parsed >= 64 ? static_cast<u32>(parsed) : 640u;
+        }();
+        return depth ? DumpDepthThumbnail(image, path, width)
+                     : DumpImageThumbnail(image, path, width);
+    });
+
     // Create presentation frames.
     present_frames.resize(num_images);
     for (u32 i = 0; i < num_images; i++) {
@@ -865,6 +876,10 @@ HmdFrames Presenter::PrepareHmdFrame(std::span<const AmdGpu::Image, 2> eye_textu
         std::error_code ec;
         const auto dump_flag =
             Common::FS::GetUserPath(Common::FS::PathType::UserDir) / "dump_render_targets";
+        // <UserDir>/dump_draws: a picture of the targets after every draw of the next frame
+        // (Rasterizer::ArmDrawDump), into <UserDir>/draw_dump.
+        const auto draw_dump_flag =
+            Common::FS::GetUserPath(Common::FS::PathType::UserDir) / "dump_draws";
         static u32 frames_until_check = 0;
         if (frames_until_check-- == 0) {
             frames_until_check = 120;
@@ -873,7 +888,12 @@ HmdFrames Presenter::PrepareHmdFrame(std::span<const AmdGpu::Image, 2> eye_textu
                 DumpGpuImages();
                 Rasterizer::StartDrawTrace(3000);
             }
+            if (std::filesystem::exists(draw_dump_flag, ec)) {
+                std::filesystem::remove(draw_dump_flag, ec);
+                rasterizer->ArmDrawDump();
+            }
         }
+        rasterizer->OnFrame();
     }
 
     static u32 logged_frames = 0;
@@ -1068,6 +1088,248 @@ bool Presenter::DeliverHmdFrame(Frame* frame, const Core::Vr::PresentedFrame& in
     return true;
 }
 
+bool Presenter::DumpImageThumbnail(VideoCore::Image& image_ref, const std::filesystem::path& path,
+                                   u32 max_width) {
+    VideoCore::Image* image = &image_ref;
+    const auto& info = image->info;
+    const u32 width = std::min(info.size.width, max_width);
+    const u32 height = std::max(1u, info.size.height * width / info.size.width);
+
+    const vk::ImageCreateInfo thumb_ci = {
+        .imageType = vk::ImageType::e2D,
+        .format = vk::Format::eR8G8B8A8Unorm,
+        .extent = {width, height, 1},
+        .mipLevels = 1,
+        .arrayLayers = 1,
+        .samples = vk::SampleCountFlagBits::e1,
+        .usage = vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eTransferSrc,
+    };
+    const VmaAllocationCreateInfo alloc_info = {.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE};
+    VkImage thumb_handle{};
+    VmaAllocation thumb_allocation{};
+    const VkImageCreateInfo thumb_ci_raw = static_cast<VkImageCreateInfo>(thumb_ci);
+    if (vmaCreateImage(instance.GetAllocator(), &thumb_ci_raw, &alloc_info, &thumb_handle,
+                       &thumb_allocation, nullptr) != VK_SUCCESS) {
+        LOG_ERROR(Render_Vulkan, "Could not allocate a thumbnail for the render target dump");
+        return false;
+    }
+    const vk::Image thumb{thumb_handle};
+
+    ScreenshotReadback readback{instance,
+                                draw_scheduler,
+                                ScreenshotKind::GameOnly,
+                                {},
+                                width,
+                                height,
+                                vk::Format::eR8G8B8A8Unorm,
+                                false};
+
+    draw_scheduler.EndRendering();
+    const auto cmdbuf = draw_scheduler.CommandBuffer();
+    const vk::ImageSubresourceRange color_range = {
+        .aspectMask = vk::ImageAspectFlagBits::eColor,
+        .levelCount = 1,
+        .layerCount = 1,
+    };
+    const auto thumb_barrier = [&](vk::ImageLayout from, vk::ImageLayout to) {
+        const vk::ImageMemoryBarrier barrier = {
+            .srcAccessMask = vk::AccessFlagBits::eTransferWrite,
+            .dstAccessMask = vk::AccessFlagBits::eTransferRead,
+            .oldLayout = from,
+            .newLayout = to,
+            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .image = thumb,
+            .subresourceRange = color_range,
+        };
+        cmdbuf.pipelineBarrier(vk::PipelineStageFlagBits::eAllCommands,
+                               vk::PipelineStageFlagBits::eAllCommands, {}, {}, {}, barrier);
+    };
+
+    image->Transit(vk::ImageLayout::eTransferSrcOptimal, vk::AccessFlagBits2::eTransferRead, {},
+                   cmdbuf);
+
+    // Multisampled targets cannot be blitted, they are resolved into a scratch image first.
+    const u32 samples = static_cast<u32>(image->backing->image.image_ci.samples);
+    vk::Image blit_source = image->GetImage();
+    VkImage resolved_handle{};
+    VmaAllocation resolved_allocation{};
+    if (samples > 1) {
+        const vk::ImageCreateInfo resolved_ci = {
+            .imageType = vk::ImageType::e2D,
+            .format = info.pixel_format,
+            .extent = {info.size.width, info.size.height, 1},
+            .mipLevels = 1,
+            .arrayLayers = 1,
+            .samples = vk::SampleCountFlagBits::e1,
+            .usage = vk::ImageUsageFlagBits::eTransferDst |
+                     vk::ImageUsageFlagBits::eTransferSrc |
+                     vk::ImageUsageFlagBits::eColorAttachment,
+        };
+        const VkImageCreateInfo resolved_ci_raw = static_cast<VkImageCreateInfo>(resolved_ci);
+        if (vmaCreateImage(instance.GetAllocator(), &resolved_ci_raw, &alloc_info,
+                           &resolved_handle, &resolved_allocation, nullptr) != VK_SUCCESS) {
+            vmaDestroyImage(instance.GetAllocator(), thumb_handle, thumb_allocation);
+            return false;
+        }
+        const vk::Image resolved{resolved_handle};
+        const auto resolved_barrier = [&](vk::ImageLayout from, vk::ImageLayout to) {
+            const vk::ImageMemoryBarrier barrier = {
+                .srcAccessMask = vk::AccessFlagBits::eTransferWrite,
+                .dstAccessMask = vk::AccessFlagBits::eTransferRead,
+                .oldLayout = from,
+                .newLayout = to,
+                .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                .image = resolved,
+                .subresourceRange = color_range,
+            };
+            cmdbuf.pipelineBarrier(vk::PipelineStageFlagBits::eAllCommands,
+                                   vk::PipelineStageFlagBits::eAllCommands, {}, {}, {},
+                                   barrier);
+        };
+        resolved_barrier(vk::ImageLayout::eUndefined, vk::ImageLayout::eTransferDstOptimal);
+        cmdbuf.resolveImage(image->GetImage(), vk::ImageLayout::eTransferSrcOptimal, resolved,
+                            vk::ImageLayout::eTransferDstOptimal,
+                            vk::ImageResolve{
+                                .srcSubresource = MakeImageSubresourceLayers(),
+                                .dstSubresource = MakeImageSubresourceLayers(),
+                                .extent = {info.size.width, info.size.height, 1},
+                            });
+        resolved_barrier(vk::ImageLayout::eTransferDstOptimal,
+                         vk::ImageLayout::eTransferSrcOptimal);
+        blit_source = resolved;
+    }
+
+    thumb_barrier(vk::ImageLayout::eUndefined, vk::ImageLayout::eTransferDstOptimal);
+    cmdbuf.blitImage(blit_source, vk::ImageLayout::eTransferSrcOptimal, thumb,
+                     vk::ImageLayout::eTransferDstOptimal,
+                     MakeImageBlitStretch(info.size.width, info.size.height, width, height),
+                     vk::Filter::eLinear);
+    thumb_barrier(vk::ImageLayout::eTransferDstOptimal, vk::ImageLayout::eTransferSrcOptimal);
+    CopyImageToReadback(cmdbuf, thumb, vk::ImageLayout::eTransferSrcOptimal, readback);
+    draw_scheduler.Finish();
+
+    std::vector<u8> rgba(static_cast<size_t>(width) * height * 4);
+    std::memcpy(rgba.data(), readback.buffer.mapped_data.data(), rgba.size());
+    for (size_t i = 3; i < rgba.size(); i += 4) {
+        rgba[i] = 0xff;
+    }
+    const bool written = WritePng(path, rgba, width, height);
+    vmaDestroyImage(instance.GetAllocator(), thumb_handle, thumb_allocation);
+    if (resolved_handle) {
+        vmaDestroyImage(instance.GetAllocator(), resolved_handle, resolved_allocation);
+    }
+    return written;
+}
+
+bool Presenter::DumpDepthThumbnail(VideoCore::Image& image, const std::filesystem::path& path,
+                                   u32 max_width) {
+    // Depth cannot be blitted into a colour picture: it is read whole and made smaller here,
+    // as grey (near is light, far and the cleared 1.0 are black; the range is stretched over
+    // what the picture holds, so that the steps of a scene close to the far plane show).
+    const auto& info = image.info;
+    const u32 samples = static_cast<u32>(image.backing->image.image_ci.samples);
+    if (samples > 1 || info.size.width == 0 || info.size.height == 0) {
+        return false;
+    }
+    u32 texel_size = 4;
+    switch (info.pixel_format) {
+    case vk::Format::eD32Sfloat:
+    case vk::Format::eD32SfloatS8Uint:
+    case vk::Format::eD24UnormS8Uint:
+    case vk::Format::eX8D24UnormPack32:
+        break;
+    case vk::Format::eD16Unorm:
+    case vk::Format::eD16UnormS8Uint:
+        texel_size = 2;
+        break;
+    default:
+        return false;
+    }
+    const u32 full_width = info.size.width;
+    const u32 full_height = info.size.height;
+    // Sized for 4 bytes a texel, which holds every depth format read here.
+    ScreenshotReadback readback{instance,
+                                draw_scheduler,
+                                ScreenshotKind::GameOnly,
+                                {},
+                                full_width,
+                                full_height,
+                                info.pixel_format,
+                                false};
+
+    draw_scheduler.EndRendering();
+    const auto cmdbuf = draw_scheduler.CommandBuffer();
+    image.Transit(vk::ImageLayout::eTransferSrcOptimal, vk::AccessFlagBits2::eTransferRead, {},
+                  cmdbuf);
+    const vk::BufferImageCopy copy_region = {
+        .bufferOffset = 0,
+        .bufferRowLength = 0,
+        .bufferImageHeight = 0,
+        .imageSubresource =
+            {
+                .aspectMask = vk::ImageAspectFlagBits::eDepth,
+                .mipLevel = 0,
+                .baseArrayLayer = 0,
+                .layerCount = 1,
+            },
+        .imageOffset = {0, 0, 0},
+        .imageExtent = {full_width, full_height, 1},
+    };
+    cmdbuf.copyImageToBuffer(image.GetImage(), vk::ImageLayout::eTransferSrcOptimal,
+                             readback.buffer.Handle(), copy_region);
+    draw_scheduler.Finish();
+
+    const u8* src = readback.buffer.mapped_data.data();
+    const auto depth_at = [&](u32 x, u32 y) -> float {
+        const size_t offset = (static_cast<size_t>(y) * full_width + x) * texel_size;
+        if (texel_size == 2) {
+            u16 value;
+            std::memcpy(&value, src + offset, sizeof(value));
+            return value / 65535.0f;
+        }
+        u32 value;
+        std::memcpy(&value, src + offset, sizeof(value));
+        if (info.pixel_format == vk::Format::eD32Sfloat ||
+            info.pixel_format == vk::Format::eD32SfloatS8Uint) {
+            float f;
+            std::memcpy(&f, &value, sizeof(f));
+            return f;
+        }
+        return (value & 0xffffffu) / 16777215.0f;
+    };
+    const u32 width = std::min(full_width, max_width);
+    const u32 height = std::max(1u, full_height * width / full_width);
+    std::vector<float> small(static_cast<size_t>(width) * height);
+    float lo = 1.0f;
+    float hi = 0.0f;
+    for (u32 y = 0; y < height; ++y) {
+        for (u32 x = 0; x < width; ++x) {
+            // Nearest texel: a block of wrong depth stays a block.
+            const float d = depth_at(x * full_width / width, y * full_height / height);
+            small[static_cast<size_t>(y) * width + x] = d;
+            if (d < 1.0f) {
+                lo = std::min(lo, d);
+                hi = std::max(hi, d);
+            }
+        }
+    }
+    const float range = hi > lo ? hi - lo : 1.0f;
+    std::vector<u8> rgba(small.size() * 4);
+    for (size_t i = 0; i < small.size(); ++i) {
+        const float d = small[i];
+        const u8 grey =
+            d >= 1.0f ? 0 : static_cast<u8>(std::clamp(32.0f + 223.0f * (hi - d) / range, 0.0f,
+                                                       255.0f));
+        rgba[i * 4 + 0] = grey;
+        rgba[i * 4 + 1] = grey;
+        rgba[i * 4 + 2] = d >= 1.0f ? 64 : grey; // what was cleared to 1.0 is dark blue
+        rgba[i * 4 + 3] = 0xff;
+    }
+    return WritePng(path, rgba, width, height);
+}
+
 void Presenter::DumpGpuImages() {
     // SHADPS4_DUMP_WIDTH=<pixels>: how wide the pictures are at most (640 unless told; the
     // targets' own width for looking at what is in a pixel).
@@ -1098,142 +1360,18 @@ void Presenter::DumpGpuImages() {
         images.push_back(&image);
     });
 
-    const vk::Device device = instance.GetDevice();
     u32 index = 0;
     for (VideoCore::Image* image : images) {
         const auto& info = image->info;
-        const u32 width = std::min(info.size.width, ThumbWidth);
-        const u32 height = std::max(1u, info.size.height * width / info.size.width);
-
-        const vk::ImageCreateInfo thumb_ci = {
-            .imageType = vk::ImageType::e2D,
-            .format = vk::Format::eR8G8B8A8Unorm,
-            .extent = {width, height, 1},
-            .mipLevels = 1,
-            .arrayLayers = 1,
-            .samples = vk::SampleCountFlagBits::e1,
-            .usage = vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eTransferSrc,
-        };
-        const VmaAllocationCreateInfo alloc_info = {.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE};
-        VkImage thumb_handle{};
-        VmaAllocation thumb_allocation{};
-        const VkImageCreateInfo thumb_ci_raw = static_cast<VkImageCreateInfo>(thumb_ci);
-        if (vmaCreateImage(instance.GetAllocator(), &thumb_ci_raw, &alloc_info, &thumb_handle,
-                           &thumb_allocation, nullptr) != VK_SUCCESS) {
-            LOG_ERROR(Render_Vulkan, "Could not allocate a thumbnail for the render target dump");
-            return;
-        }
-        const vk::Image thumb{thumb_handle};
-
-        ScreenshotReadback readback{instance,
-                                    draw_scheduler,
-                                    ScreenshotKind::GameOnly,
-                                    {},
-                                    width,
-                                    height,
-                                    vk::Format::eR8G8B8A8Unorm,
-                                    false};
-
-        draw_scheduler.EndRendering();
-        const auto cmdbuf = draw_scheduler.CommandBuffer();
-        const vk::ImageSubresourceRange color_range = {
-            .aspectMask = vk::ImageAspectFlagBits::eColor,
-            .levelCount = 1,
-            .layerCount = 1,
-        };
-        const auto thumb_barrier = [&](vk::ImageLayout from, vk::ImageLayout to) {
-            const vk::ImageMemoryBarrier barrier = {
-                .srcAccessMask = vk::AccessFlagBits::eTransferWrite,
-                .dstAccessMask = vk::AccessFlagBits::eTransferRead,
-                .oldLayout = from,
-                .newLayout = to,
-                .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-                .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-                .image = thumb,
-                .subresourceRange = color_range,
-            };
-            cmdbuf.pipelineBarrier(vk::PipelineStageFlagBits::eAllCommands,
-                                   vk::PipelineStageFlagBits::eAllCommands, {}, {}, {}, barrier);
-        };
-
-        image->Transit(vk::ImageLayout::eTransferSrcOptimal, vk::AccessFlagBits2::eTransferRead, {},
-                       cmdbuf);
-
-        // Multisampled targets cannot be blitted, they are resolved into a scratch image first.
         const u32 samples = static_cast<u32>(image->backing->image.image_ci.samples);
-        vk::Image blit_source = image->GetImage();
-        VkImage resolved_handle{};
-        VmaAllocation resolved_allocation{};
-        if (samples > 1) {
-            const vk::ImageCreateInfo resolved_ci = {
-                .imageType = vk::ImageType::e2D,
-                .format = info.pixel_format,
-                .extent = {info.size.width, info.size.height, 1},
-                .mipLevels = 1,
-                .arrayLayers = 1,
-                .samples = vk::SampleCountFlagBits::e1,
-                .usage = vk::ImageUsageFlagBits::eTransferDst |
-                         vk::ImageUsageFlagBits::eTransferSrc |
-                         vk::ImageUsageFlagBits::eColorAttachment,
-            };
-            const VkImageCreateInfo resolved_ci_raw = static_cast<VkImageCreateInfo>(resolved_ci);
-            if (vmaCreateImage(instance.GetAllocator(), &resolved_ci_raw, &alloc_info,
-                               &resolved_handle, &resolved_allocation, nullptr) != VK_SUCCESS) {
-                vmaDestroyImage(instance.GetAllocator(), thumb_handle, thumb_allocation);
-                continue;
-            }
-            const vk::Image resolved{resolved_handle};
-            const auto resolved_barrier = [&](vk::ImageLayout from, vk::ImageLayout to) {
-                const vk::ImageMemoryBarrier barrier = {
-                    .srcAccessMask = vk::AccessFlagBits::eTransferWrite,
-                    .dstAccessMask = vk::AccessFlagBits::eTransferRead,
-                    .oldLayout = from,
-                    .newLayout = to,
-                    .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-                    .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-                    .image = resolved,
-                    .subresourceRange = color_range,
-                };
-                cmdbuf.pipelineBarrier(vk::PipelineStageFlagBits::eAllCommands,
-                                       vk::PipelineStageFlagBits::eAllCommands, {}, {}, {},
-                                       barrier);
-            };
-            resolved_barrier(vk::ImageLayout::eUndefined, vk::ImageLayout::eTransferDstOptimal);
-            cmdbuf.resolveImage(image->GetImage(), vk::ImageLayout::eTransferSrcOptimal, resolved,
-                                vk::ImageLayout::eTransferDstOptimal,
-                                vk::ImageResolve{
-                                    .srcSubresource = MakeImageSubresourceLayers(),
-                                    .dstSubresource = MakeImageSubresourceLayers(),
-                                    .extent = {info.size.width, info.size.height, 1},
-                                });
-            resolved_barrier(vk::ImageLayout::eTransferDstOptimal,
-                             vk::ImageLayout::eTransferSrcOptimal);
-            blit_source = resolved;
-        }
-
-        thumb_barrier(vk::ImageLayout::eUndefined, vk::ImageLayout::eTransferDstOptimal);
-        cmdbuf.blitImage(blit_source, vk::ImageLayout::eTransferSrcOptimal, thumb,
-                         vk::ImageLayout::eTransferDstOptimal,
-                         MakeImageBlitStretch(info.size.width, info.size.height, width, height),
-                         vk::Filter::eLinear);
-        thumb_barrier(vk::ImageLayout::eTransferDstOptimal, vk::ImageLayout::eTransferSrcOptimal);
-        CopyImageToReadback(cmdbuf, thumb, vk::ImageLayout::eTransferSrcOptimal, readback);
-        draw_scheduler.Finish();
-
-        std::vector<u8> rgba(static_cast<size_t>(width) * height * 4);
-        std::memcpy(rgba.data(), readback.buffer.mapped_data.data(), rgba.size());
-        for (size_t i = 3; i < rgba.size(); i += 4) {
-            rgba[i] = 0xff;
-        }
-        const auto path = dump_dir / fmt::format("{:03}_{:x}_{}x{}_{}_s{}.png", index++,
+        const auto path = dump_dir / fmt::format("{:03}_{:x}_{}x{}_{}_s{}.png", index,
                                                  info.guest_address, info.size.width,
                                                  info.size.height,
                                                  vk::to_string(info.pixel_format), samples);
-        WritePng(path, rgba, width, height);
-        vmaDestroyImage(instance.GetAllocator(), thumb_handle, thumb_allocation);
-        if (resolved_handle) {
-            vmaDestroyImage(instance.GetAllocator(), resolved_handle, resolved_allocation);
+        if (!DumpImageThumbnail(*image, path, ThumbWidth)) {
+            continue;
         }
+        ++index;
     }
     LOG_INFO(Render_Vulkan, "Dumped {} render targets to {}", index, dump_dir.string());
 

@@ -3,6 +3,8 @@
 
 #pragma once
 
+#include <filesystem>
+#include <functional>
 #include <memory>
 #include <vector>
 
@@ -45,6 +47,20 @@ public:
 
     /// Logs the next `count` guest draws, dispatches and markers. Debugging aid.
     static void StartDrawTrace(s32 count);
+
+    /// Writes a picture of an image to a file (`depth`: of a depth target). Set by the
+    /// presenter, which has the means for it.
+    using ImageDumper =
+        std::function<bool(VideoCore::Image&, const std::filesystem::path&, bool depth)>;
+    void SetImageDumper(ImageDumper dumper) {
+        image_dumper = std::move(dumper);
+    }
+
+    /// Debugging aid: from the next frame on, a picture of the render target (and of the depth
+    /// target, where the draw writes depth) after every draw, fast clear eliminate and resolve,
+    /// in <UserDir>/draw_dump. `OnFrame` is called once a frame, by the presenter.
+    void ArmDrawDump();
+    void OnFrame();
 
     [[nodiscard]] VideoCore::BufferCache& GetBufferCache() noexcept {
         return buffer_cache;
@@ -137,6 +153,18 @@ private:
 
 private:
     friend class VideoCore::BufferCache;
+
+    void DumpAfterDraw(const char* what, const GraphicsPipeline* pipeline);
+    void DumpGuestTarget(const char* what, u32 cb);
+    bool DrawDumpWanted(VAddr address, u32 width) const;
+
+    ImageDumper image_dumper;
+    enum class DrawDumpState : u8 { Off, Armed, Active };
+    DrawDumpState draw_dump_state{DrawDumpState::Off};
+    u32 draw_dump_frames_left{};
+    u32 draw_dump_frame{};
+    u32 draw_dump_seq{};
+    std::filesystem::path draw_dump_dir;
 
     const Instance& instance;
     Scheduler& scheduler;

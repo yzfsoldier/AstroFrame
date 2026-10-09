@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include "common/debug.h"
+#include "common/path_util.h"
 #include "core/emulator_settings.h"
 #include "core/memory.h"
 #include "shader_recompiler/runtime_info.h"
@@ -14,6 +15,7 @@
 #include "video_core/renderer_vulkan/vk_scheduler.h"
 #include "video_core/renderer_vulkan/vk_shader_hle.h"
 
+#include <algorithm>
 #include <array>
 #include <bit>
 
@@ -66,6 +68,164 @@ static bool TraceDraw() {
     return g_draw_trace_budget.fetch_sub(1) > 0;
 }
 
+// Draw dump (debugging aid, see ArmDrawDump). Set through the environment:
+//   SHADPS4_DBG_DRAW_DUMP_FRAMES=<n>   how many frames (1)
+//   SHADPS4_DBG_DRAW_DUMP_CB=<a,b,..>  only targets at these addresses (hex); otherwise every
+//                                      colour target at least SHADPS4_DBG_DRAW_DUMP_MIN_WIDTH
+//                                      (512) wide
+//   SHADPS4_DBG_DRAW_DUMP_WIDTH=<px>   picture width (640)
+//   SHADPS4_DBG_DRAW_DUMP_DEPTH=0      no pictures of depth
+//   SHADPS4_DBG_DRAW_DUMP_MAX=<n>      at most so many pictures (6000)
+static u32 DrawDumpEnvU32(const char* name, u32 fallback) {
+    const char* value = std::getenv(name);
+    return value != nullptr && value[0] != 0 ? static_cast<u32>(std::strtoul(value, nullptr, 0))
+                                             : fallback;
+}
+
+static const std::vector<VAddr>& DrawDumpAddresses() {
+    static const std::vector<VAddr> addresses = [] {
+        std::vector<VAddr> list;
+        const char* value = std::getenv("SHADPS4_DBG_DRAW_DUMP_CB");
+        for (const char* at = value; at != nullptr && *at != 0;) {
+            char* end = nullptr;
+            const VAddr address = std::strtoull(at, &end, 16);
+            if (end == at) {
+                break;
+            }
+            list.push_back(address);
+            at = *end == ',' ? end + 1 : end;
+        }
+        return list;
+    }();
+    return addresses;
+}
+
+void Rasterizer::ArmDrawDump() {
+    if (!image_dumper) {
+        LOG_WARNING(Render_Vulkan, "Draw dump asked for, but nothing to write pictures with");
+        return;
+    }
+    draw_dump_state = DrawDumpState::Armed;
+}
+
+void Rasterizer::OnFrame() {
+    ++draw_dump_frame;
+    if (draw_dump_state == DrawDumpState::Armed) {
+        draw_dump_dir = Common::FS::GetUserPath(Common::FS::PathType::UserDir) / "draw_dump";
+        std::error_code ec;
+        std::filesystem::remove_all(draw_dump_dir, ec);
+        std::filesystem::create_directories(draw_dump_dir, ec);
+        draw_dump_frames_left = std::max(1u, DrawDumpEnvU32("SHADPS4_DBG_DRAW_DUMP_FRAMES", 1));
+        draw_dump_seq = 0;
+        draw_dump_state = DrawDumpState::Active;
+        StartDrawTrace(20000);
+        LOG_INFO(Render_Vulkan, "DRAWDUMP start: frame {}, {} frame(s), into {}",
+                 draw_dump_frame, draw_dump_frames_left, draw_dump_dir.string());
+        return;
+    }
+    if (draw_dump_state == DrawDumpState::Active) {
+        LOG_INFO(Render_Vulkan, "DRAWDUMP frame {} ends", draw_dump_frame);
+        if (--draw_dump_frames_left == 0) {
+            draw_dump_state = DrawDumpState::Off;
+            StartDrawTrace(0);
+            LOG_INFO(Render_Vulkan, "DRAWDUMP done: {} pictures", draw_dump_seq);
+        }
+    }
+}
+
+bool Rasterizer::DrawDumpWanted(VAddr address, u32 width) const {
+    if (draw_dump_state != DrawDumpState::Active ||
+        draw_dump_seq >= DrawDumpEnvU32("SHADPS4_DBG_DRAW_DUMP_MAX", 6000)) {
+        return false;
+    }
+    const auto& addresses = DrawDumpAddresses();
+    if (!addresses.empty()) {
+        return std::find(addresses.begin(), addresses.end(), address) != addresses.end();
+    }
+    return width >= DrawDumpEnvU32("SHADPS4_DBG_DRAW_DUMP_MIN_WIDTH", 512);
+}
+
+void Rasterizer::DumpAfterDraw(const char* what, const GraphicsPipeline* pipeline) {
+    if (draw_dump_state != DrawDumpState::Active) {
+        return;
+    }
+    const auto& regs = liverpool->regs;
+    static const bool with_depth = DrawDumpEnvU32("SHADPS4_DBG_DRAW_DUMP_DEPTH", 1) != 0;
+    static const GraphicsPipelineKey empty_key{};
+    const auto& key = pipeline ? pipeline->GetGraphicsKey() : empty_key;
+    const u64 vs = key.stage_hashes[static_cast<u32>(Shader::LogicalStage::Vertex)];
+    const u64 ps = key.stage_hashes[static_cast<u32>(Shader::LogicalStage::Fragment)];
+    const u32 zstate = (regs.depth_control.depth_enable ? 100u : 0u) +
+                       (regs.depth_control.depth_write_enable ? 10u : 0u) +
+                       static_cast<u32>(regs.depth_control.depth_func);
+
+    // The colour target the draw wrote, or else the depth target alone decides whether the
+    // draw is one of those wanted (a depth prepass).
+    const auto color_id = cb_descs[0].first;
+    VAddr color_address = 0;
+    bool dump_color = false;
+    if (color_id) {
+        auto& image = texture_cache.GetImage(color_id);
+        color_address = image.info.guest_address;
+        dump_color = DrawDumpWanted(color_address, image.info.size.width);
+    }
+    const auto depth_id = db_desc.first;
+    bool dump_depth = false;
+    if (with_depth && depth_id && regs.depth_control.depth_write_enable) {
+        auto& image = texture_cache.GetImage(depth_id);
+        dump_depth = color_id ? dump_color
+                              : DrawDumpWanted(image.info.guest_address, image.info.size.width);
+    }
+    if (!dump_color && !dump_depth) {
+        return;
+    }
+    const u32 seq = draw_dump_seq++;
+    LOG_INFO(Render_Vulkan,
+             "DRAWDUMP {:05} {} frame={} cb0={:#x} db={:#x} vs={:#x} ps={:#x} z={:03} "
+             "samples={}/{} n={} inst={}",
+             seq, what, draw_dump_frame, color_address, regs.depth_buffer.DepthAddress(), vs, ps,
+             zstate, key.num_samples, key.depth_samples, regs.num_indices,
+             regs.num_instances.NumInstances());
+    if (dump_color) {
+        auto& image = texture_cache.GetImage(color_id);
+        image_dumper(image,
+                     draw_dump_dir / fmt::format("{:05}_{}_cb{:x}_ps{:08x}_vs{:08x}_z{:03}_s{}.png",
+                                                 seq, what, color_address, ps, vs, zstate,
+                                                 key.num_samples),
+                     false);
+    }
+    if (dump_depth) {
+        auto& image = texture_cache.GetImage(depth_id);
+        image_dumper(image,
+                     draw_dump_dir / fmt::format("{:05}_{}_db{:x}_ps{:08x}_z{:03}_depth.png", seq,
+                                                 what, image.info.guest_address, ps, zstate),
+                     true);
+    }
+}
+
+void Rasterizer::DumpGuestTarget(const char* what, u32 cb) {
+    if (draw_dump_state != DrawDumpState::Active) {
+        return;
+    }
+    const auto& col_buf = liverpool->regs.color_buffers[cb];
+    if (!col_buf || !DrawDumpWanted(col_buf.Address(), col_buf.Pitch())) {
+        return;
+    }
+    VideoCore::TextureCache::ImageDesc desc(col_buf, liverpool->last_cb_extent[cb]);
+    const auto image_id = texture_cache.FindImage(desc);
+    if (!image_id) {
+        return;
+    }
+    auto& image = texture_cache.GetImage(image_id);
+    const u32 seq = draw_dump_seq++;
+    LOG_INFO(Render_Vulkan, "DRAWDUMP {:05} {} frame={} cb{}={:#x}", seq, what, draw_dump_frame,
+             cb, col_buf.Address());
+    image_dumper(image,
+                 draw_dump_dir /
+                     fmt::format("{:05}_{}_cb{:x}.png", seq, what, image.info.guest_address),
+                 false);
+}
+
 void Rasterizer::CpSync() {
     scheduler.EndRendering();
     auto cmdbuf = scheduler.CommandBuffer();
@@ -90,6 +250,7 @@ bool Rasterizer::FilterDraw() {
                      texture_cache.IsMetaCleared(col_buf.CmaskAddress(), col_buf.view.slice_start));
         }
         EliminateFastClear();
+        DumpGuestTarget("fce", 0);
         return false;
     }
     if (regs.color_control.mode == AmdGpu::ColorControl::OperationMode::FmaskDecompress) {
@@ -109,6 +270,7 @@ bool Rasterizer::FilterDraw() {
                      regs.color_buffers[0].Address(), regs.color_buffers[1].Address());
         }
         Resolve();
+        DumpGuestTarget("resolve", 1);
         return false;
     }
     if (regs.primitive_type == AmdGpu::PrimitiveType::None) {
@@ -391,6 +553,7 @@ void Rasterizer::Draw(bool is_indexed, u32 index_offset) {
                     instance_offset);
     }
 
+    DumpAfterDraw("draw", pipeline);
     ResetBindings();
     RetireIsolatedReadConstSnapshots();
 }
@@ -546,6 +709,7 @@ void Rasterizer::DrawIndirect(bool is_indexed, VAddr arg_address, u32 offset, u3
         }
     }
 
+    DumpAfterDraw("indirect", pipeline);
     ResetBindings();
     RetireIsolatedReadConstSnapshots();
 }
