@@ -63,6 +63,14 @@ export STEAM_FRAME_CLANG=$clang_c
 
 need() { command -v "$1" >/dev/null || die "$1 is needed"; }
 for tool in git cmake ninja python3; do need "$tool"; done
+# openal-soft, one of the emulator's libraries, uses what CMake has from 3.26 on.
+cmake_version=$(cmake --version | awk 'NR==1 {print $3}')
+if [[ "$(printf '%s\n3.26\n' "$cmake_version" | sort -V | head -1)" != 3.26 ]]; then
+    die "CMake $cmake_version is too old (3.26 or later is needed): pip3 install 'cmake<4'"
+fi
+# CMake 4 refuses projects that ask for compatibility with CMake before 3.5, as some of the
+# libraries still do; this has it treat them as 3.5 (older CMake ignores it).
+export CMAKE_POLICY_VERSION_MINIMUM=3.5
 
 # --- sources ------------------------------------------------------------------------------------
 
