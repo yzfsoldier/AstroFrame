@@ -820,16 +820,15 @@ int PS4_SYSV_ABI sceNetEpollDestroy(OrbisNetId epollid) {
     return ORBIS_OK;
 }
 
-#ifdef __linux__
+#if defined(__linux__) && defined(__GLIBC__) &&                                                  \
+    (__GLIBC__ < 2 || (__GLIBC__ == 2 && __GLIBC_MINOR__ < 35))
+#define SHADPS4_EPOLL_PWAIT2_BY_SYSCALL 1
 /// epoll_pwait2 (Linux 5.11): a wait with a timeout finer than a millisecond. Where the C library
 /// does not name it (glibc before 2.35, as in the Steam Linux Runtime 3.0 the Steam Frame
 /// starts the emulator in), through the system call itself; where the kernel does not have it
 /// either, epoll_pwait in whole milliseconds, rounded up.
 static int EpollWaitPrecise(int epoll_fd, epoll_event* events, int maxevents,
                             const timespec* timeout) {
-#if defined(__GLIBC__) && (__GLIBC__ > 2 || (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 35))
-    return epoll_pwait2(epoll_fd, events, maxevents, timeout, nullptr);
-#else
 #ifdef __NR_epoll_pwait2
     constexpr long EpollPwait2 = __NR_epoll_pwait2;
 #else
@@ -849,7 +848,6 @@ static int EpollWaitPrecise(int epoll_fd, epoll_event* events, int maxevents,
             ? -1
             : static_cast<int>(timeout->tv_sec * 1000 + (timeout->tv_nsec + 999999) / 1000000);
     return epoll_pwait(epoll_fd, events, maxevents, milliseconds, nullptr);
-#endif
 }
 #endif
 
@@ -878,8 +876,13 @@ int PS4_SYSV_ABI sceNetEpollWait(OrbisNetId epollid, OrbisNetEpollEvent* events,
 #ifdef __linux__
         const timespec epoll_timeout{.tv_sec = timeout / 1000000,
                                      .tv_nsec = (timeout % 1000000) * 1000};
+#ifdef SHADPS4_EPOLL_PWAIT2_BY_SYSCALL
         result = EpollWaitPrecise(epoll->epoll_fd, native_events.data(), maxevents,
                                   timeout < 0 ? nullptr : &epoll_timeout);
+#else
+        result = epoll_pwait2(epoll->epoll_fd, native_events.data(), maxevents,
+                              timeout < 0 ? nullptr : &epoll_timeout, nullptr);
+#endif
 #else
         result = epoll_wait(epoll->epoll_fd, native_events.data(), maxevents,
                             timeout < 0 ? timeout : timeout / 1000);

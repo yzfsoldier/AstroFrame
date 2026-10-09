@@ -936,9 +936,18 @@ HmdFrames Presenter::PrepareHmdFrame(std::span<const AmdGpu::Image, 2> eye_textu
     // Without a window (SHADPS4_HEADLESS, as on the Steam Frame) the window's look at the
     // eyes' pictures is drawn for nobody: while the machine's own headset takes the frame, it
     // is left out, and with it the window's pass, its overlay and its presentation.
+    // (Only in the Steam Frame build unless SHADPS4_VR_WINDOW_FRAME=0 asks for it elsewhere;
+    // SHADPS4_VR_WINDOW_FRAME=1 keeps the window's frame there.)
     static const bool window_frame_wanted = [] {
-        const char* value = std::getenv("SHADPS4_VR_WINDOW_FRAME");
-        return value != nullptr && value[0] == '1';
+        if (const char* value = std::getenv("SHADPS4_VR_WINDOW_FRAME");
+            value != nullptr && value[0] != 0) {
+            return value[0] != '0';
+        }
+#ifdef ENABLE_STEAM_FRAME
+        return false;
+#else
+        return true;
+#endif
     }();
     const bool skip_window = swapchain.IsHeadless() && local != nullptr && !window_frame_wanted;
     if (!exported && !skip_window) {

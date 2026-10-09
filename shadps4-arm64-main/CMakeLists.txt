@@ -54,7 +54,14 @@ endif()
 # The headset of the machine the emulator runs on, through that machine's OpenXR runtime
 # (Virtual Desktop, SteamVR, Monado, the Steam Frame's own): where the frames of an emulated
 # PlayStation VR are shown.
-cmake_dependent_option(ENABLE_OPENXR "Show the emulated headset's frames in a headset of this machine" ON "WIN32 OR (UNIX AND NOT APPLE);NOT ENABLE_BACHATA_RUNTIME" OFF)
+# On by default where it always was (Windows) and for the Steam Frame; a Linux PC build can
+# turn it on.
+if (WIN32 OR ENABLE_STEAM_FRAME)
+    set(SHADPS4_OPENXR_DEFAULT ON)
+else()
+    set(SHADPS4_OPENXR_DEFAULT OFF)
+endif()
+cmake_dependent_option(ENABLE_OPENXR "Show the emulated headset's frames in a headset of this machine" ${SHADPS4_OPENXR_DEFAULT} "WIN32 OR (UNIX AND NOT APPLE);NOT ENABLE_BACHATA_RUNTIME" OFF)
 if (ENABLE_STEAM_FRAME AND NOT ENABLE_OPENXR)
     message(FATAL_ERROR "ENABLE_STEAM_FRAME needs ENABLE_OPENXR: the headset is where the game is shown")
 endif()

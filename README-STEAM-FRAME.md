@@ -178,7 +178,10 @@ What to look for when it does not work:
 
 ## What was changed
 
-For the Frame build (everything else is the emulator as it is):
+For the Frame build (everything else is the emulator as it is). The Quest and PC builds are not
+changed by it: what is different on the Frame is either compiled only into its build
+(`ENABLE_STEAM_FRAME`) or only switched on by a setting it sets (foveation, eye tracking, the
+display rate); the debugging aids (`dump_draws`, `SHADPS4_DBG_*`) do nothing until asked.
 
 - `CMakeLists.txt`: the option `ENABLE_STEAM_FRAME` (which also links the C++ library into the
   program, so that it does not depend on the runtime's); `ENABLE_OPENXR` is now available on
