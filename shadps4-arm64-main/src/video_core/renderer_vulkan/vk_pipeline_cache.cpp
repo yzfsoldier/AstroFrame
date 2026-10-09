@@ -263,11 +263,9 @@ static bool NeedsLdsBarriers(vk::DriverId driver) {
     if (driver == vk::DriverId::eNvidiaProprietary || driver == vk::DriverId::eMesaKosmickrisp) {
         return true;
     }
-#ifdef ENABLE_STEAM_FRAME
-    if (driver == vk::DriverId::eMesaTurnip) {
-        return true;
-    }
-#endif
+    // Not for Turnip: Adreno runs a group of 64 threads as one wave (of 64 or 128) as GCN does,
+    // so the guest's shaders get what they count on without them. (They were tried on the
+    // Steam Frame against black squares in the right eye's picture, and changed nothing.)
     return false;
 }
 
