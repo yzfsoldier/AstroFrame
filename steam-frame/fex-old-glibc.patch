@@ -1,0 +1,17 @@
+diff --git a/FEXCore/Source/Interface/Core/CodeCache.cpp b/FEXCore/Source/Interface/Core/CodeCache.cpp
+index 3866fa5..6e83e88 100644
+--- a/FEXCore/Source/Interface/Core/CodeCache.cpp
++++ b/FEXCore/Source/Interface/Core/CodeCache.cpp
+@@ -27,6 +27,12 @@
+ #include <span>
+ #include <xxhash.h>
+ 
++#include <sys/mman.h>
++#ifndef MREMAP_DONTUNMAP
++// Linux 5.7+; older C libraries (glibc 2.31, as in the Steam Linux Runtime 3.0) do not name it.
++#define MREMAP_DONTUNMAP 4
++#endif
++
+ #include <FEXCore/Utils/AllocatorHooks.h>
+ 
+ #include <fstream>

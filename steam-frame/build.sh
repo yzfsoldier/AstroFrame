@@ -23,6 +23,8 @@
 #   STEAM_FRAME_JOBS=n        parallel jobs (default: number of processors)
 #   STEAM_FRAME_SDL_X11=0     build SDL without X11/Wayland (the headset needs neither: the
 #                             game is shown in the headset, and a window is only for testing)
+#   STEAM_FRAME_GCC_DIR=dir   the GCC installation clang takes its C++ library from (native
+#                             builds; default: that of the newest g++-NN, 11 or later)
 #   STEAM_FRAME_CMAKE_ARGS="..."  more arguments for configuring the emulator
 #                             (-DLIBUSB_ENABLE_UDEV=OFF where libudev is missing, say)
 set -euo pipefail
@@ -143,13 +145,17 @@ print(fex["url"], fex["revision"])' "$lock")
         checkout_at "$fex/$sub" "$url" "$sha"
         echo "  fex/$sub"
     done
-    # FEX trimmed to its core (the patch the Quest build uses as well), applied once.
-    if git -C "$fex" apply --reverse --check "$patch" 2>/dev/null; then
-        echo "  (FEXCore-only patch already applied)"
-    else
-        git -C "$fex" apply "$patch"
-        echo "  FEXCore-only patch applied"
-    fi
+    # FEX trimmed to its core (the patch the Quest build uses as well), and made to build with
+    # the older C library of the Steam Linux Runtime 3.0; each applied once.
+    local p
+    for p in "$patch" "$here/fex-old-glibc.patch"; do
+        if git -C "$fex" apply --reverse --check "$p" 2>/dev/null; then
+            echo "  ($(basename "$p") already applied)"
+        else
+            git -C "$fex" apply "$p"
+            echo "  $(basename "$p") applied"
+        fi
+    done
 }
 
 # --- FEXCore ------------------------------------------------------------------------------------
@@ -161,6 +167,23 @@ if [[ "$cross" == 1 ]]; then
 else
     cross_args=(-DCMAKE_C_COMPILER="$clang_c" -DCMAKE_CXX_COMPILER="$clang_cxx"
                 -DCMAKE_LINKER_TYPE=LLD)
+    # clang takes its C++ library from a GCC installation, and the oldest one there can win:
+    # in the Steam Linux Runtime's SDK that is GCC 10, whose library lacks what the emulator
+    # and FEX need (std::bit_cast and C++23). The newest g++ there is names its own.
+    gcc_dir=${STEAM_FRAME_GCC_DIR:-}
+    if [[ -z "$gcc_dir" ]]; then
+        for v in 15 14 13 12 11; do
+            if command -v "g++-$v" >/dev/null; then
+                gcc_dir=$(dirname "$("g++-$v" -print-libgcc-file-name)")
+                break
+            fi
+        done
+    fi
+    if [[ -n "$gcc_dir" && -d "$gcc_dir" ]]; then
+        echo "C++ library from the GCC in $gcc_dir"
+        cross_args+=(-DCMAKE_C_FLAGS="--gcc-install-dir=$gcc_dir"
+                     -DCMAKE_CXX_FLAGS="--gcc-install-dir=$gcc_dir")
+    fi
 fi
 
 build_fex() {
