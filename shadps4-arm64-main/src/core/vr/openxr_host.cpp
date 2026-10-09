@@ -528,6 +528,15 @@ struct OpenXrHost::Impl {
         }
         std::vector<XrExtensionProperties> offered(count, {XR_TYPE_EXTENSION_PROPERTIES});
         xrEnumerateInstanceExtensionProperties(nullptr, count, &count, offered.data());
+        {
+            // What the runtime offers, to see what more it could do (eye tracking, foveation).
+            std::string names;
+            for (const auto& property : offered) {
+                names += names.empty() ? "" : ", ";
+                names += property.extensionName;
+            }
+            LOG_INFO(Core_Vr, "The OpenXR runtime offers: {}", names);
+        }
         const auto has = [&](const char* name) {
             return std::ranges::any_of(offered, [&](const auto& property) {
                 return std::strcmp(property.extensionName, name) == 0;
