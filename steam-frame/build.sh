@@ -181,8 +181,13 @@ else
     fi
     if [[ -n "$gcc_dir" && -d "$gcc_dir" ]]; then
         echo "C++ library from the GCC in $gcc_dir"
+        # GCC's runtime libraries go into the programs (the emulator links them in anyway):
+        # such a GCC may come without the link-time libgcc_s.so, and the runtime's own
+        # libgcc_s / libstdc++ need not be as new.
         cross_args+=(-DCMAKE_C_FLAGS="--gcc-install-dir=$gcc_dir"
-                     -DCMAKE_CXX_FLAGS="--gcc-install-dir=$gcc_dir")
+                     -DCMAKE_CXX_FLAGS="--gcc-install-dir=$gcc_dir"
+                     -DCMAKE_EXE_LINKER_FLAGS="-static-libgcc -static-libstdc++"
+                     -DCMAKE_SHARED_LINKER_FLAGS="-static-libgcc -static-libstdc++")
     fi
 fi
 
