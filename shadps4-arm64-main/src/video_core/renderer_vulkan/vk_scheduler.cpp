@@ -438,6 +438,46 @@ void Scheduler::BeginRendering(const RenderState& new_state) {
     render_state = new_state;
     bound_pipeline = nullptr;
 
+    // What a pass before drew into its targets is not ordered before what this one does with
+    // them: rasterization order only holds within a pass, and the texture cache leaves out the
+    // barrier where an image stays a target from one pass to the next. A tiling GPU that draws
+    // its passes in tiles finishes one before it begins the next anyway; one that draws straight
+    // into memory (Turnip with TU_DEBUG=sysmem) lets them overlap, and a pass that blends
+    // over, or tests against, what the last one left there reads it half written. On the Steam
+    // Frame that left black squares along the edges in the right eye's picture.
+    // SHADPS4_PASS_BARRIER=0/1 turns this off/on (on by default on the Steam Frame).
+    static const bool pass_barrier = [] {
+        if (const char* value = std::getenv("SHADPS4_PASS_BARRIER");
+            value != nullptr && value[0] != 0) {
+            return value[0] != '0';
+        }
+#ifdef ENABLE_STEAM_FRAME
+        return true;
+#else
+        return false;
+#endif
+    }();
+    if (pass_barrier) {
+        constexpr auto attachment_stages = vk::PipelineStageFlagBits2::eColorAttachmentOutput |
+                                           vk::PipelineStageFlagBits2::eEarlyFragmentTests |
+                                           vk::PipelineStageFlagBits2::eLateFragmentTests;
+        const vk::MemoryBarrier2 barrier = {
+            .srcStageMask = attachment_stages,
+            .srcAccessMask = vk::AccessFlagBits2::eColorAttachmentWrite |
+                             vk::AccessFlagBits2::eDepthStencilAttachmentWrite,
+            .dstStageMask = attachment_stages | vk::PipelineStageFlagBits2::eFragmentShader,
+            .dstAccessMask = vk::AccessFlagBits2::eColorAttachmentRead |
+                             vk::AccessFlagBits2::eColorAttachmentWrite |
+                             vk::AccessFlagBits2::eDepthStencilAttachmentRead |
+                             vk::AccessFlagBits2::eDepthStencilAttachmentWrite |
+                             vk::AccessFlagBits2::eShaderSampledRead,
+        };
+        current_cmdbuf.pipelineBarrier2(vk::DependencyInfo{
+            .memoryBarrierCount = 1,
+            .pMemoryBarriers = &barrier,
+        });
+    }
+
     std::array<vk::RenderingAttachmentInfo, 8> color_attachments;
     for (u32 i = 0; i < render_state.num_color_attachments; ++i) {
         const auto& cb = render_state.color_attachments[i];
