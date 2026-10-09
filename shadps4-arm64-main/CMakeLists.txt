@@ -1355,8 +1355,9 @@ if (ENABLE_STEAM_FRAME)
     target_compile_definitions(shadps4 PRIVATE ENABLE_STEAM_FRAME)
     # The C++ library goes into the program: the Steam Linux Runtime the headset starts it in
     # has a C++ library of its own, which need not be as new as the one it was built with.
+    # (GCC's support library stays the system's libgcc_s.so.1, which every runtime has.)
     if (NOT MSVC)
-        target_link_options(shadps4 PRIVATE -static-libstdc++ -static-libgcc)
+        target_link_options(shadps4 PRIVATE -static-libstdc++)
     endif()
 endif()
 # The GPU of a phone or standalone headset (Adreno, with Mesa's Turnip): it shares the system's

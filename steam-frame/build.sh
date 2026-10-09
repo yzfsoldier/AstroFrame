@@ -181,13 +181,28 @@ else
     fi
     if [[ -n "$gcc_dir" && -d "$gcc_dir" ]]; then
         echo "C++ library from the GCC in $gcc_dir"
-        # GCC's runtime libraries go into the programs (the emulator links them in anyway):
-        # such a GCC may come without the link-time libgcc_s.so, and the runtime's own
-        # libgcc_s / libstdc++ need not be as new.
+        # The C++ library goes into the programs (the runtime's own need not be as new). GCC's
+        # support library stays the system's libgcc_s.so.1, which every runtime has: such a
+        # GCC (the SDK's GCC 14, in a prefix of its own) may come without libgcc_eh.a for
+        # linking it in, and without the link-time libgcc_s.so, which is made up here.
+        local_libs="$build/link-shim"
+        link_flags="-static-libstdc++"
+        if [[ ! -e "$gcc_dir/libgcc_s.so" ]]; then
+            libgcc_s=$(ldconfig -p 2>/dev/null | awk '/libgcc_s\.so\.1 .*(AArch64|aarch64)/ {print $NF; exit}')
+            [[ -z "$libgcc_s" ]] && for f in /lib/aarch64-linux-gnu/libgcc_s.so.1 \
+                                            /usr/lib/aarch64-linux-gnu/libgcc_s.so.1 /lib64/libgcc_s.so.1; do
+                [[ -e "$f" ]] && { libgcc_s=$f; break; }
+            done
+            if [[ -n "$libgcc_s" ]]; then
+                mkdir -p "$local_libs"
+                ln -sf "$libgcc_s" "$local_libs/libgcc_s.so"
+                link_flags+=" -L$local_libs"
+            fi
+        fi
         cross_args+=(-DCMAKE_C_FLAGS="--gcc-install-dir=$gcc_dir"
                      -DCMAKE_CXX_FLAGS="--gcc-install-dir=$gcc_dir"
-                     -DCMAKE_EXE_LINKER_FLAGS="-static-libgcc -static-libstdc++"
-                     -DCMAKE_SHARED_LINKER_FLAGS="-static-libgcc -static-libstdc++")
+                     -DCMAKE_EXE_LINKER_FLAGS="$link_flags"
+                     -DCMAKE_SHARED_LINKER_FLAGS="$link_flags")
     fi
 fi
 
