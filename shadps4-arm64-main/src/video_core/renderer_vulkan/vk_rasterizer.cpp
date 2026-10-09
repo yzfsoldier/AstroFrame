@@ -1795,9 +1795,11 @@ RenderState Rasterizer::BeginRendering(const GraphicsPipeline* pipeline) {
     }
 
     // Foveated rendering (SHADPS4_FOVEATION) for the passes that draw the scene: colour and
-    // depth targets of 512 pixels or more each way, one layer.
+    // depth targets of 512 pixels or more each way, one layer, about as tall as wide or taller,
+    // as an eye's picture is (not the 16:9 picture for the television, the social screen).
     if (instance.IsShadingRateAttachmentEnabled() && state.depth_stencil_attachment.image_view &&
         state.num_layers == 1 && state.width >= 512 && state.height >= 512 &&
+        state.width * 4 <= state.height * 5 &&
         state.width < instance.GetMaxFramebufferWidth()) {
         bool has_color = false;
         for (u32 cb = 0; cb < state.num_color_attachments; ++cb) {
