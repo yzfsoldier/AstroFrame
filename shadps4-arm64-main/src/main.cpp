@@ -70,6 +70,11 @@ static std::array<unsigned char, 65536> g_sigsys_altstack alignas(16) {};
 #endif
 
 #if defined(__aarch64__)
+#ifndef SYS_faccessat2
+// Linux 5.8; C libraries older than that (glibc 2.31, as in the Steam Linux Runtime 3.0) do not
+// name it. The same number on every architecture.
+#define SYS_faccessat2 439
+#endif
 // Android app seccomp traps faccessat2 (issue #17, exit 159). Replay as faccessat
 // when no FEX guest thread owns the SIGSYS. Kernel ABI: x0 = 0 or -errno.
 static bool BachataEmulateSeccompFaccessat2(siginfo_t* info, ucontext_t* ctx) {
