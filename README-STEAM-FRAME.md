@@ -59,11 +59,19 @@ together `build/AstroQuest-SteamFrame/`.
 **For the headset: on an ARM64 Linux machine, in the Steam Linux Runtime's arm64 SDK.** Steam
 starts Linux ARM64 programs on the Frame in the Steam Linux Runtime 3.0 (sniper), which has an
 older C library than current distributions; a program built against a newer one does not start
-there. Build in sniper's SDK for arm64 (Valve publishes it as a container image; any aarch64
-machine will do, a Raspberry Pi 5, an ARM cloud machine, an ARM Mac with a Linux VM):
+there. Build in sniper's SDK for arm64, which Valve publishes as the container image
+`registry.gitlab.steamos.cloud/steamrt/sniper/sdk/arm64:latest`. On an aarch64 machine (a
+Raspberry Pi 5, an ARM cloud machine, an ARM Mac with a Linux VM) it runs natively; on an
+x86-64 PC, Docker runs it through qemu (Docker Desktop does that by itself, also with WSL 2;
+elsewhere `docker run --privileged --rm tonistiigi/binfmt --install arm64` sets it up once),
+several times slower:
 
 ```sh
-# inside the sniper arm64 SDK container, in this repository:
+# in this repository (on Windows: inside WSL, in its own file system, not under /mnt/c)
+docker run --rm -it --platform linux/arm64 -v "$PWD":/src -w /src \
+    registry.gitlab.steamos.cloud/steamrt/sniper/sdk/arm64:latest bash
+# then, inside the container:
+git config --global --add safe.directory '*'
 steam-frame/build.sh
 ```
 
