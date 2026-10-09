@@ -186,7 +186,7 @@ else
         # GCC (the SDK's GCC 14, in a prefix of its own) may come without libgcc_eh.a for
         # linking it in, and without the link-time libgcc_s.so, which is made up here.
         local_libs="$build/link-shim"
-        link_flags="-static-libstdc++"
+        link_flags=""
         if [[ ! -e "$gcc_dir/libgcc_s.so" ]]; then
             libgcc_s=$(ldconfig -p 2>/dev/null | awk '/libgcc_s\.so\.1 .*(AArch64|aarch64)/ {print $NF; exit}')
             [[ -z "$libgcc_s" ]] && for f in /lib/aarch64-linux-gnu/libgcc_s.so.1 \
@@ -196,11 +196,14 @@ else
             if [[ -n "$libgcc_s" ]]; then
                 mkdir -p "$local_libs"
                 ln -sf "$libgcc_s" "$local_libs/libgcc_s.so"
-                link_flags+=" -L$local_libs"
+                link_flags="-L$local_libs"
             fi
         fi
+        # (-static-libstdc++ only where C++ is linked: in C links clang calls it unused, which
+        # configuration checks run with -Werror take for a failure.)
         cross_args+=(-DCMAKE_C_FLAGS="--gcc-install-dir=$gcc_dir"
                      -DCMAKE_CXX_FLAGS="--gcc-install-dir=$gcc_dir"
+                     -DCMAKE_CXX_STANDARD_LIBRARIES="-static-libstdc++"
                      -DCMAKE_EXE_LINKER_FLAGS="$link_flags"
                      -DCMAKE_SHARED_LINKER_FLAGS="$link_flags")
     fi
