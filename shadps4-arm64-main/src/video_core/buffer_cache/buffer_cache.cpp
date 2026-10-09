@@ -26,7 +26,7 @@
 namespace VideoCore {
 
 static constexpr size_t DataShareBufferSize = 64_KB;
-#ifdef ENABLE_BACHATA_RUNTIME
+#ifdef SHADPS4_MOBILE_GPU
 // On the phones and headsets this runtime is for, GPU memory is system memory, and the kernel
 // driver backs every allocation with pages right away, used or not. A desktop-sized staging ring
 // alone would take a sixteenth of all the memory a headset has.
@@ -95,7 +95,7 @@ BufferCache::BufferCache(const Vulkan::Instance& instance_, Vulkan::Scheduler& s
     }
 
     const s64 device_local_memory = static_cast<s64>(instance.GetTotalMemoryBudget());
-#ifdef ENABLE_BACHATA_RUNTIME
+#ifdef SHADPS4_MOBILE_GPU
     // See the texture cache: the desktop thresholds are more than this kind of machine has.
     trigger_gc_memory = static_cast<u64>(device_local_memory / 4);
     critical_gc_memory = static_cast<u64>(device_local_memory * 4 / 10);

@@ -42,9 +42,22 @@ option(ENABLE_TESTS "Build unit tests (requires GTest)" OFF)
 option(ENABLE_BACHATA_RUNTIME "Build x86-64 Android-container runtime mode" OFF)
 option(ENABLE_SYSTEM_LIBRARIES "Enable building against system libraries" OFF)
 option(ENABLE_FEX_GUEST_CPU "Build the native ARM64 FEXCore guest CPU backend" OFF)
+# A standalone headset that runs Linux itself, Valve's Steam Frame (SteamOS on ARM64, Adreno GPU
+# with Mesa's Turnip, SteamVR as its OpenXR runtime): the emulator is a native Linux program
+# there, shows its frames through the in-process OpenXR host and keeps to the memory budget
+# of a machine whose GPU shares the system's memory, as the Quest build does. No Android
+# container (Bachata) and no compatibility layer (Lepton) take part.
+option(ENABLE_STEAM_FRAME "Build for a standalone Linux headset (Steam Frame)" OFF)
+if (ENABLE_STEAM_FRAME AND ENABLE_BACHATA_RUNTIME)
+    message(FATAL_ERROR "ENABLE_STEAM_FRAME is a native Linux build: leave ENABLE_BACHATA_RUNTIME off")
+endif()
 # The headset of the machine the emulator runs on, through that machine's OpenXR runtime
-# (Virtual Desktop, SteamVR, ...): where the frames of an emulated PlayStation VR are shown.
-cmake_dependent_option(ENABLE_OPENXR "Show the emulated headset's frames in a headset of this machine" ON "WIN32;NOT ENABLE_BACHATA_RUNTIME" OFF)
+# (Virtual Desktop, SteamVR, Monado, the Steam Frame's own): where the frames of an emulated
+# PlayStation VR are shown.
+cmake_dependent_option(ENABLE_OPENXR "Show the emulated headset's frames in a headset of this machine" ON "WIN32 OR (UNIX AND NOT APPLE);NOT ENABLE_BACHATA_RUNTIME" OFF)
+if (ENABLE_STEAM_FRAME AND NOT ENABLE_OPENXR)
+    message(FATAL_ERROR "ENABLE_STEAM_FRAME needs ENABLE_OPENXR: the headset is where the game is shown")
+endif()
 set(FEXCORE_GUEST_CPU_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/runtime/sources/fex" CACHE PATH
     "Checked-out FEX source directory for the FEXCore guest CPU backend")
 set(FEXCORE_GUEST_CPU_BUILD_DIR "${CMAKE_CURRENT_SOURCE_DIR}/runtime/build/fexcore-smoke-build" CACHE PATH
@@ -1337,6 +1350,20 @@ add_executable(shadps4
 
 if (ENABLE_BACHATA_RUNTIME)
     target_compile_definitions(shadps4 PRIVATE ENABLE_BACHATA_RUNTIME)
+endif()
+if (ENABLE_STEAM_FRAME)
+    target_compile_definitions(shadps4 PRIVATE ENABLE_STEAM_FRAME)
+    # The C++ library goes into the program: the Steam Linux Runtime the headset starts it in
+    # has a C++ library of its own, which need not be as new as the one it was built with.
+    if (NOT MSVC)
+        target_link_options(shadps4 PRIVATE -static-libstdc++ -static-libgcc)
+    endif()
+endif()
+# The GPU of a phone or standalone headset (Adreno, with Mesa's Turnip): it shares the system's
+# memory, so the caches plan with a share of the machine's memory rather than with what the
+# driver calls its heap, and it draws in tiles, so long frames go to it in parts.
+if (ENABLE_BACHATA_RUNTIME OR ENABLE_STEAM_FRAME)
+    target_compile_definitions(shadps4 PRIVATE SHADPS4_MOBILE_GPU)
 endif()
 if (ENABLE_OPENXR)
     target_compile_definitions(shadps4 PRIVATE ENABLE_OPENXR_HOST)

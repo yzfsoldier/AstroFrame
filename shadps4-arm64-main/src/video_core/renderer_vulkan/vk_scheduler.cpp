@@ -70,7 +70,7 @@ std::array<Tally, static_cast<size_t>(FrameStats::Counter::Count)> g_counters{};
 u32 FlushDraws() {
     static const u32 draws = [] {
         const char* value = std::getenv("SHADPS4_FLUSH_DRAWS");
-#ifdef ENABLE_BACHATA_RUNTIME
+#ifdef SHADPS4_MOBILE_GPU
         constexpr u32 Default = 64;
 #else
         constexpr u32 Default = 0;

@@ -15,6 +15,10 @@ from your own copy of the game through a PS4 emulator. Ways to play:
   [the Index setup](README-PC-VR.md#valve-index-through-steamvr), including controller
   positional-tracking limits. Other PC headsets go the same way, through SteamVR or an OpenXR
   runtime of their own: a Bigscreen Beyond and a Pimax Dream Air have been reported working.
+- **On a Steam Frame alone** (experimental, not yet tried on a headset): the emulator runs as a
+  native Linux ARM64 program on the Frame's SteamOS, without Android or Lepton, and shows the
+  game through the headset's OpenXR runtime. Built from source; see
+  [README-STEAM-FRAME.md](README-STEAM-FRAME.md).
 
 The emulator is [shadPS4](https://github.com/shadps4-emu/shadPS4) (its ARM64 build,
 [zenithblue-oss/shadps4-arm64](https://github.com/zenithblue-oss/shadps4-arm64), on the

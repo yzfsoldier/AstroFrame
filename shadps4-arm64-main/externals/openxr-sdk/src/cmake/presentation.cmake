@@ -2,6 +2,21 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+# shadPS4: when only the loader is built (no tests, samples or conformance suite), no
+# presentation backend is needed, and a build machine without X11 or Wayland headers (the Steam
+# Frame's headless build) has none to offer.
+if(NOT BUILD_TESTS AND NOT BUILD_SDK_TESTS AND NOT BUILD_CONFORMANCE_TESTS)
+    find_package(X11 QUIET)
+    if(NOT X11_FOUND)
+        set(PRESENTATION_BACKEND none)
+        set(BUILD_WITH_XLIB_HEADERS OFF)
+        set(BUILD_WITH_XCB_HEADERS OFF)
+        set(BUILD_WITH_WAYLAND_HEADERS OFF)
+        message(STATUS "OpenXR loader only, without X11: no presentation backend")
+        return()
+    endif()
+endif()
+
 set(PRESENTATION_BACKENDS xlib xcb wayland)
 set(PRESENTATION_BACKEND
     xlib

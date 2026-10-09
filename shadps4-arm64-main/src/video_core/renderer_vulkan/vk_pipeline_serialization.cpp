@@ -302,7 +302,7 @@ void PipelineCache::WarmUp() {
         return;
     }
 
-#ifdef ENABLE_BACHATA_RUNTIME
+#if defined(ENABLE_BACHATA_RUNTIME) || defined(ENABLE_STEAM_FRAME)
     // Cached Shader::Info / pipeline keys can embed guest pointers. Reloading
     // them under FEX SIGSEGVs the host (Driveclub CUSA00093: read 0x6fc40c3ee0
     // immediately after swapchain + ImGui init). Compile on demand instead.

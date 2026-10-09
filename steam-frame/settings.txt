@@ -1,0 +1,95 @@
+# Settings for AstroQuest on the Steam Frame (astroquest.sh), one key=value a line. Lines
+# starting with # are ignored; what is commented out shows the value that applies when the line
+# is left out. The same keys can be given as environment variables in the game's Steam launch
+# options, as ASTROQUEST_<KEY>=value %command% (ASTROQUEST_FOV=90 %command%), which win over
+# this file.
+
+# The display refresh rate to ask the headset for (72, 90, 120, 144), where its runtime lets a
+# program choose; otherwise the rate set in SteamVR applies. It decides which frame rates the
+# game can keep in step with the display: 45 or 30 frames a second at 90 Hz, 60, 40 or 30 at
+# 120, 36 at 72. 0: leave the rate alone.
+#refresh_rate=90
+
+# How many of the display's refreshes every frame of the game is given (2 is the game's own
+# way). Left out: the emulator chooses, as on the Quest.
+#pace=
+
+# The most frames a second (60 is the console's own). Left out: as many as the pace makes.
+#fps=
+
+# The size the game draws its scene at, per eye: 816 (x870), 960 (x1080), 1200 (x1280),
+# 1440 (x1536), larger widths (1800, 2160 ... as on the PC, with the GPU time and memory that
+# takes), or game for the game's own choice. Left out: the emulator chooses, as large as the GPU
+# manages at the pace.
+#resolution=
+
+# How much of the headset's field of view the game draws, in percent, 50 to 100: less puts the
+# same pixels over fewer degrees, a sharper picture with a soft border where the rest was.
+#fov=85
+
+# Sharpening of every frame of the game, 0 (none) to 1.
+#sharpen=0.6
+
+# The most samples a pixel gets (1, 2, 4, 8). 1 (the default): no multisampling, much faster;
+# the emulator smooths edges itself instead, unless antialias=0.
+#msaa=1
+#antialias=1
+
+# 1: the GPU driver draws without its tiled mode, which was faster for this game on the
+# Quest's Adreno GPU without multisampling. 0: the driver chooses.
+#tu_sysmem=1
+
+# 0: the game counts time in frames, as on the console (slow motion whenever a frame takes
+# longer than a sixtieth of a second).
+#real_time=1
+
+# 0: do not use hand tracking to place a gamepad in the game.
+#hands=1
+
+# 0: the headset's own controllers never stand in for a gamepad.
+#controllers=1
+
+# Which of the headset's controllers is the controller in the game: right or left.
+#controller_hand=right
+
+# How many degrees the view turns for each flick of the right stick with the left grip (L1 on a
+# gamepad) held. 0: never.
+#turn=30
+
+# How far beyond the next refresh the head pose given to the game is predicted, in
+# milliseconds (0 to 80).
+#predict_ms=20
+
+# 0: the right stick no longer doubles as a finger on the touchpad.
+#stick_touchpad=1
+
+# Makes what the microphone hears that many times louder for the game (0.1 to 30).
+#mic_gain=1
+
+# 0: the game's surround sound is folded down to left and right.
+#surround=1
+
+# 0: the game is never made to wait while the headset is off the head.
+#pause=1
+
+# The language the game is played in, as a language tag (fr-FR, de-DE, pt-BR, ja-JP ...).
+# Left out: the system's (LANG). The game has 28 languages and is in English for any other.
+#language=
+
+# 1: also open a window with the game on the desktop (for testing on a Linux PC with a headset;
+# the headset itself shows only what is in it).
+#window=0
+
+# Seconds to wait for a headset before the game starts without one. 0: do not wait.
+#wait=60
+
+# Where the game is, if it is not in one of the games folders (see README-STEAM-FRAME.md): its
+# eboot.bin or its folder.
+#game=/home/steamuser/AstroQuest/games/CUSA12392/eboot.bin
+
+# Where saves, logs and the emulator's settings are kept. Left out: ~/.local/share/AstroQuest,
+# which a new upload of the program with the Devkit Client leaves alone.
+#data=
+
+# Extra environment variables for the emulator, as many lines as needed.
+#env=NAME=value

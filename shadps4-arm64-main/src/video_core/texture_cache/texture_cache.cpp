@@ -113,7 +113,7 @@ TextureCache::TextureCache(const Vulkan::Instance& instance_, Vulkan::Scheduler&
     }
 
     const s64 device_local_memory = static_cast<s64>(instance.GetTotalMemoryBudget());
-#ifdef ENABLE_BACHATA_RUNTIME
+#ifdef SHADPS4_MOBILE_GPU
     // GPU memory is system memory here and the budget is small: start dropping images that have
     // not been used for a while long before the desktop thresholds, which exceed the budget.
     pressure_gc_memory = static_cast<u64>(device_local_memory * 4 / 10);

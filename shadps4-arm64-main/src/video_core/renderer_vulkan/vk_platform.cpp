@@ -22,10 +22,12 @@
 #include "common/logging/log.h"
 #include "common/path_util.h"
 #include "core/emulator_settings.h"
+#include "sdl_window.h"
+// (After sdl_window.h: on Linux this file asks the Vulkan headers for Xlib, whose macros, None
+// among them, must not come before the emulator's own declarations of those names.)
 #ifdef ENABLE_OPENXR_HOST
 #include "core/vr/openxr_host.h"
 #endif
-#include "sdl_window.h"
 #include "video_core/renderer_vulkan/vk_platform.h"
 
 #ifdef __APPLE__

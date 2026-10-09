@@ -12,12 +12,14 @@
 #include <mutex>
 #include <thread>
 
+#ifdef _WIN32
 #include <windows.h>
 
 #include <mmdeviceapi.h>
 #include <objbase.h>
 #include <propidl.h>
 #include <unknwn.h>
+#endif
 
 #include <SDL3/SDL_events.h>
 
@@ -34,7 +36,11 @@
 #include "input/view_turn.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
 
+#ifdef _WIN32
 #define XR_USE_PLATFORM_WIN32
+#endif
+// (On Linux, Vulkan is all the runtime has to be told about: SteamVR on a PC and on the Steam
+// Frame, Monado, WiVRn. No windowing system takes part in handing frames over.)
 #define XR_USE_GRAPHICS_API_VULKAN
 #include <openxr/openxr.h>
 #include <openxr/openxr_platform.h>
@@ -54,16 +60,18 @@ constexpr u32 NumCommandBuffers = 4;
 /// Pictures smaller than this, either way, are a title's way of showing nothing.
 constexpr u32 MinFrameSize = 64;
 
-/// What runtimes for Windows are known to want of a Vulkan device they share images with. It is
-/// enabled whenever a runtime is there, so that a headset that turns up after the renderer has
-/// made its device (the player starts the game first and puts the headset on then) can still be
-/// drawn to; what the runtime itself asks for comes on top once it can be asked.
+/// What runtimes are known to want of a Vulkan device they share images with. It is enabled
+/// whenever a runtime is there, so that a headset that turns up after the renderer has made its
+/// device (the player starts the game first and puts the headset on then) can still be drawn
+/// to; what the runtime itself asks for comes on top once it can be asked. (Names the driver
+/// does not know are left out by the renderer.)
 constexpr const char* UsualInstanceExtensions[] = {
     "VK_KHR_get_physical_device_properties2",
     "VK_KHR_external_memory_capabilities",
     "VK_KHR_external_semaphore_capabilities",
     "VK_KHR_external_fence_capabilities",
 };
+#ifdef _WIN32
 constexpr const char* UsualDeviceExtensions[] = {
     "VK_KHR_dedicated_allocation",    "VK_KHR_get_memory_requirements2",
     "VK_KHR_bind_memory2",            "VK_KHR_external_memory",
@@ -74,6 +82,21 @@ constexpr const char* UsualDeviceExtensions[] = {
     "VK_KHR_maintenance1",            "VK_KHR_maintenance2",
     "VK_KHR_multiview",               "VK_KHR_create_renderpass2",
 };
+#else
+// Linux runtimes (SteamVR, also on the Steam Frame; Monado; WiVRn) share images and their
+// synchronisation as file descriptors, and on Mesa's drivers as dma-bufs with modifiers.
+constexpr const char* UsualDeviceExtensions[] = {
+    "VK_KHR_dedicated_allocation",       "VK_KHR_get_memory_requirements2",
+    "VK_KHR_bind_memory2",               "VK_KHR_external_memory",
+    "VK_KHR_external_memory_fd",         "VK_EXT_external_memory_dma_buf",
+    "VK_EXT_image_drm_format_modifier",  "VK_KHR_external_semaphore",
+    "VK_KHR_external_semaphore_fd",      "VK_KHR_external_fence",
+    "VK_KHR_external_fence_fd",          "VK_KHR_timeline_semaphore",
+    "VK_KHR_image_format_list",          "VK_KHR_maintenance1",
+    "VK_KHR_maintenance2",               "VK_KHR_multiview",
+    "VK_KHR_create_renderpass2",         "VK_KHR_sampler_ycbcr_conversion",
+};
+#endif
 
 const char* StateName(XrSessionState state) {
     switch (state) {
@@ -152,6 +175,7 @@ XrVector3f Rotate(const XrQuaternionf& q, const XrVector3f& v) {
     return {rotated.x, rotated.y, rotated.z};
 }
 
+#ifdef _WIN32
 std::string Narrow(const wchar_t* text) {
     const int size = WideCharToMultiByte(CP_UTF8, 0, text, -1, nullptr, 0, nullptr, nullptr);
     if (size <= 1) {
@@ -276,6 +300,7 @@ std::string ActiveAudioDeviceEnding(std::string_view ending, EDataFlow flow) {
     }
     return found;
 }
+#endif // _WIN32
 
 } // namespace
 
@@ -522,7 +547,9 @@ struct OpenXrHost::Impl {
         };
         hand_extension = track_hands && enable_if_offered(XR_EXT_HAND_TRACKING_EXTENSION_NAME);
         has_refresh_rate = enable_if_offered(XR_FB_DISPLAY_REFRESH_RATE_EXTENSION_NAME);
+#ifdef _WIN32
         has_audio_guid = enable_if_offered(XR_OCULUS_AUDIO_DEVICE_GUID_EXTENSION_NAME);
+#endif
 
         XrInstanceCreateInfo info{XR_TYPE_INSTANCE_CREATE_INFO};
         std::strcpy(info.applicationInfo.applicationName, "shadPS4");
@@ -651,11 +678,12 @@ struct OpenXrHost::Impl {
         return true;
     }
 
-    /// Where the headset's sound goes and comes from, by the names Windows lists the devices
-    /// under: a runtime that streams to a headset has devices of its own for that.
+    /// Where the headset's sound goes and comes from, by the names the system lists the
+    /// devices under: a runtime that streams to a headset has devices of its own for that.
     void FindAudioDevices() {
         std::string output_name;
         std::string input_name;
+#ifdef _WIN32
         if (has_audio_guid) {
             using Function = XrResult(XRAPI_PTR*)(XrInstance, wchar_t*);
             const auto output =
@@ -689,6 +717,19 @@ struct OpenXrHost::Impl {
                 input_name = std::move(microphone);
             }
         }
+#else
+        // On Linux the headset's sound is the system's: on the Steam Frame its speakers and
+        // microphone are the default devices PipeWire offers, and SteamVR on a PC sets the
+        // system's default to the headset's while it runs. A device of another name can be
+        // asked for (SHADPS4_XR_AUDIO_OUTPUT / SHADPS4_XR_AUDIO_INPUT=<its name as SDL lists
+        // it>), for a headset that streams its sound through a device of its own.
+        if (const char* name = std::getenv("SHADPS4_XR_AUDIO_OUTPUT"); name != nullptr) {
+            output_name = name;
+        }
+        if (const char* name = std::getenv("SHADPS4_XR_AUDIO_INPUT"); name != nullptr) {
+            input_name = name;
+        }
+#endif
         std::scoped_lock lock{names_mutex};
         if (audio_names_known && output_name == audio_output && input_name == audio_input) {
             return;
@@ -699,6 +740,47 @@ struct OpenXrHost::Impl {
         audio_names_known = true;
         audio_output = std::move(output_name);
         audio_input = std::move(input_name);
+    }
+
+    /// SHADPS4_XR_REFRESH_RATE=<Hz>: the display refresh rate to ask the headset for, where its
+    /// runtime lets an application choose (XR_FB_display_refresh_rate: the Quest's, and other
+    /// standalone headsets'). The nearest rate the headset offers is asked for. It decides
+    /// which frame rates the game can keep in step with the display (see "Speed" in
+    /// README-QUEST-VR.md): 45 or 30 frames a second at 90 Hz, 60, 40 or 30 at 120.
+    void RequestRefreshRate() {
+        const float wanted = EnvFloat("SHADPS4_XR_REFRESH_RATE", 0.0f);
+        if (wanted <= 0.0f) {
+            return;
+        }
+        const auto enumerate = GetFunction<PFN_xrEnumerateDisplayRefreshRatesFB>(
+            instance, "xrEnumerateDisplayRefreshRatesFB");
+        const auto request = GetFunction<PFN_xrRequestDisplayRefreshRateFB>(
+            instance, "xrRequestDisplayRefreshRateFB");
+        if (enumerate == nullptr || request == nullptr) {
+            return;
+        }
+        uint32_t count = 0;
+        if (XR_FAILED(enumerate(session, 0, &count, nullptr)) || count == 0) {
+            LOG_INFO(Core_Vr, "{} offers no display refresh rates to choose from", runtime_name);
+            return;
+        }
+        std::vector<float> rates(count);
+        enumerate(session, count, &count, rates.data());
+        rates.resize(count);
+        const float chosen = *std::ranges::min_element(rates, [&](float a, float b) {
+            return std::abs(a - wanted) < std::abs(b - wanted);
+        });
+        std::string offered;
+        for (const float rate : rates) {
+            offered += fmt::format("{}{:.0f}", offered.empty() ? "" : ", ", rate);
+        }
+        const XrResult result = request(session, chosen);
+        if (XR_SUCCEEDED(result)) {
+            LOG_INFO(Core_Vr, "Asked the headset for {:.0f} Hz (offered: {})", chosen, offered);
+        } else {
+            LOG_WARNING(Core_Vr, "The headset refused {:.0f} Hz: {} (offered: {})", chosen,
+                        ResultText(instance, result), offered);
+        }
     }
 
     /// FindAudioDevices again, a moment after sound devices came or went (on the frame
@@ -848,6 +930,7 @@ struct OpenXrHost::Impl {
         if (has_refresh_rate) {
             get_refresh_rate = GetFunction<PFN_xrGetDisplayRefreshRateFB>(
                 instance, "xrGetDisplayRefreshRateFB");
+            RequestRefreshRate();
         }
         if (!command_pool && !CreateCopyResources()) {
             DestroySession();
