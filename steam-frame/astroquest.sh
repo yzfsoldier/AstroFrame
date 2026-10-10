@@ -97,6 +97,14 @@ if [[ ! -f "$game_dir/sce_module/libc.prx" ]]; then
 fi
 
 emulator="$here/bin/shadps4"
+# An upload from Windows (or through a folder of Windows') can lose the files' executable bit:
+# given back here, for the emulator and for this script, so that the next start needs no bash
+# in front of it either.
+for file in "$emulator" "$here/astroquest.sh"; do
+    if [[ -f "$file" && ! -x "$file" ]]; then
+        chmod +x "$file" 2>/dev/null && say "made $(basename "$file") executable again"
+    fi
+done
 [[ -x "$emulator" ]] || { say "$emulator is missing: build it with steam-frame/build.sh"; exit 1; }
 
 # The emulator's own settings: a log in a file, and controllers read while its window (if it has
@@ -151,6 +159,8 @@ gaze_smoothing=$(setting gaze_smoothing)
 gaze_offset=$(setting gaze_offset)
 [[ -n "$gaze_offset" ]] && export SHADPS4_GAZE_OFFSET=$gaze_offset
 [[ "$(setting overlay 0)" == 1 ]] && export SHADPS4_VR_OVERLAY=1
+overlay_position=$(setting overlay_position)
+[[ -n "$overlay_position" ]] && export SHADPS4_VR_OVERLAY_POS=$overlay_position
 [[ "$(setting foveation_colors 0)" == 1 ]] && export SHADPS4_FOVEATION_SHOW=1
 # One sample a pixel by default (the emulator smooths edges itself), as on the Quest: the fastest.
 msaa=$(setting msaa 1)

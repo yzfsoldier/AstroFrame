@@ -161,6 +161,21 @@ headset.
 An upload replaces `settings.txt` in the uploaded folder with the one from the package: settings
 you want to keep are best given in the game's Steam launch options (see [Settings](#settings)).
 
+**Without the Devkit Client, or when the start fails with "permission denied":** a copy made
+through Windows (Explorer, WinSCP, the Windows Devkit Client reading a WSL folder) can lose the
+files' executable bit. `steam-frame/deploy.sh` copies the package over SSH from Linux or WSL
+with the bits kept, and sets them again:
+
+```sh
+steam-frame/deploy.sh steamos@<headset address> [folder, default Applications/AstroQuest]
+```
+
+It keeps a `settings.txt` of yours on the headset (the package's goes beside it as
+`settings.default.txt`) and deletes nothing. `STEAM_FRAME_SSH_KEY=<file>` names the key to log
+in with. Then add `astroquest.sh` in that folder as a Non-Steam game on the headset. Once the
+script runs, it gives the emulator its executable bit back itself, should it have lost it; for
+the script, `chmod +x astroquest.sh` over SSH is the way when it was copied some other way.
+
 If you play with a gamepad, pair it in the headset's Bluetooth settings. For a DualSense to
 reach the game with its touchpad and motion sensors, turn **Steam Input off** for the game
 (its controller settings in Steam): with Steam Input on, the game gets the virtual controller
@@ -237,8 +252,9 @@ headset sees you look.
 
 ### Debug overlay
 
-`overlay=1` puts a few lines of text above the middle of the picture, at the same place in
-both eyes (so they look far away), updated twice a second:
+`overlay=1` puts a few lines of text a little above the middle of the picture
+(`overlay_position=0.5,0.38`: across and down, 0 to 1), at the same place in both eyes (so they
+look far away), updated twice a second:
 
 ```
 36 fps  27.8 ms  72 Hz/2          frames a second, what a frame takes, display rate / refreshes a frame

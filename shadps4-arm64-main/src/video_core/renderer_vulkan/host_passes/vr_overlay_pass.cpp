@@ -25,7 +25,7 @@ struct PushData {
     std::array<float, 4> fov;    ///< middle x, y (-1..1), inner ring, outer ring
     std::array<float, 4> extra;  ///< tint alpha, outer ring 4x4, gaze mark, 0
     u32 mode;                    ///< 0: foveation tint, 1: a line of text
-    u32 length;                  ///< characters in `text`
+    u32 count;                   ///< characters in `text`
     u32 scale;                   ///< pixels of the frame for one of the font
     u32 pad;
     std::array<u32, 12> text;    ///< up to 48 characters, four to a word
@@ -125,6 +125,13 @@ void VrOverlayPass::Create(const Instance& instance, vk::Format format) {
     // SHADPS4_VR_OVERLAY_SCALE=<1..4>: pixels of the frame for one of the font (2 unless told).
     if (const char* value = std::getenv("SHADPS4_VR_OVERLAY_SCALE"); value != nullptr) {
         scale = std::clamp(static_cast<u32>(std::atoi(value)), 1u, 4u);
+    }
+    if (const char* value = std::getenv("SHADPS4_VR_OVERLAY_POS"); value != nullptr) {
+        char* end = nullptr;
+        position_x = std::clamp(std::strtof(value, &end), 0.0f, 1.0f);
+        if (end != nullptr && *end == ',') {
+            position_y = std::clamp(std::strtof(end + 1, nullptr), 0.0f, 1.0f);
+        }
     }
 
     std::string frag_source{OverlayFrag};
@@ -347,18 +354,28 @@ void VrOverlayPass::Render(vk::CommandBuffer cmdbuf, Frame& frame, const Foveati
             data.mode = 0;
             draw(data);
         }
-        // The text sits above the middle of each eye's picture, a little to the left, at the
-        // same place in both: it looks far away and stays out of the way of what one plays.
+        // The text block is centred on a point of each eye's picture, the same in both, so
+        // that it looks far away: a little above the middle unless SHADPS4_VR_OVERLAY_POS=
+        // <x>,<y> (0..1 across and down the picture) puts it elsewhere. Further out the lenses
+        // blur it.
         const float line_height = static_cast<float>(GlyphHeight * scale + 4);
-        float y = std::floor(eye_height * 0.24f);
+        u32 widest = 0;
+        for (const std::string& line : lines) {
+            widest = std::max(widest, std::min<u32>(static_cast<u32>(line.size()), MaxLine));
+        }
+        const float block_width = static_cast<float>((widest * GlyphWidth + 2) * scale);
+        const float block_height = line_height * static_cast<float>(lines.size());
+        float y = std::floor(eye_height * position_y - block_height * 0.5f);
+        const float x = std::floor(eye_x + eye_width * position_x - block_width * 0.5f);
         for (const std::string& line : lines) {
             const u32 length = std::min<u32>(static_cast<u32>(line.size()), MaxLine);
             PushData data{};
             const float width = static_cast<float>((length * GlyphWidth + 2) * scale);
-            data.rect = {std::floor(eye_x + eye_width * 0.32f), y, width,
+            data.rect = {std::clamp(x, eye_x, eye_x + eye_width - width),
+                         std::clamp(y, 0.0f, eye_height - line_height), width,
                          static_cast<float>(GlyphHeight * scale)};
             data.mode = 1;
-            data.length = length;
+            data.count = length;
             data.scale = scale;
             std::memcpy(data.text.data(), line.data(), length);
             draw(data);

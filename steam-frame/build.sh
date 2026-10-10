@@ -317,7 +317,8 @@ EOF
     (cd "$root/build" && tar -czf AstroQuest-SteamFrame.tar.gz AstroQuest-SteamFrame)
     say "Done: $dist (and build/AstroQuest-SteamFrame.tar.gz)"
     echo "Upload the folder with the SteamOS Devkit Client: Start Command 'astroquest.sh',"
-    echo "Runtime 'Steam Linux Runtime 3.0 ARM64 (Sniper)'. See README-STEAM-FRAME.md."
+    echo "Runtime 'Steam Linux Runtime 3.0 ARM64 (Sniper)' - or over SSH, executable bits kept:"
+    echo "steam-frame/deploy.sh steamos@<headset address>. See README-STEAM-FRAME.md."
 }
 
 case "$step" in

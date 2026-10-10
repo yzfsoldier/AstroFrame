@@ -48,6 +48,9 @@ private:
     vk::UniquePipeline pipeline{};
     vk::UniquePipelineLayout pipeline_layout{};
     u32 scale = 2;
+    /// Where the middle of the text block is, 0..1 across and down each eye's picture.
+    float position_x = 0.5f;
+    float position_y = 0.38f;
 };
 
 } // namespace Vulkan::HostPasses

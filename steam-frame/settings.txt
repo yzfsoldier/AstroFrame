@@ -56,6 +56,10 @@
 # frame, multisampling, foveation and where the eyes look (updated twice a second).
 #overlay=0
 
+# Where the overlay's text sits in each eye's picture: across and down, 0 to 1 each (0.5,0.5 is
+# the middle). The further out, the more the lenses blur it.
+#overlay_position=0.5,0.38
+
 # 1: with foveation on, its rings in colour over the picture: green where every pixel is
 # shaded, yellow where one colour does for 2x2 pixels, red for 4x4; a small white ring where
 # the eyes look.
