@@ -204,7 +204,8 @@ key and its default are explained in the file. The most useful:
 
 | Setting | Meaning |
 | --- | --- |
-| `foveation=0` | foveated rendering: `1`-`3` shade the scene ever more coarsely away from where you look, so the GPU has time for a larger picture. `2` is a good start: the scene then stays at full size where it otherwise drops to 960x1080 |
+| `foveation=3` | foveated rendering: `1`-`3` shade the scene ever more coarsely away from where you look, so the GPU has time for a larger picture; `3` (the default) is the strongest, `0` turns it off. With it the scene stays at full size where it otherwise drops to 960x1080 |
+| `gaze_smoothing=1` | how steady the eye tracking is kept, in Hz: smaller is steadier, larger follows more closely, `0` takes the headset's readings as they come |
 | `eye_tracking=1` | with foveation on, the sharp middle follows your eyes (the Frame's eye tracking, through SteamVR); `0` keeps it in the middle of the picture |
 | `overlay=0` | `1`: a debug overlay in the headset (frame rate, frame time, display rate, scene size, GPU load, draws, foveation, gaze) |
 | `foveation_colors=0` | `1`: foveation's rings in colour over the picture (green: every pixel, yellow: 2x2, red: 4x4) and a mark where you look |
@@ -223,7 +224,8 @@ the emulator.
 
 ### Foveated rendering
 
-With `foveation` on, the passes that draw the scene get a small map of how finely to shade:
+Foveated rendering is on by default (`foveation=3`, following the eyes). The passes that draw
+the scene get a small map of how finely to shade:
 every pixel in the middle, one colour for every 2x2 or 4x4 pixels further out. Depth and the
 edges of things stay exact at every pixel, only the colour inside them is computed for fewer of
 them; the bloom, the picture handed to the headset and the shadow maps are not touched. With
@@ -268,7 +270,7 @@ look far away), updated twice a second:
 36 fps  27.8 ms  72 Hz/2          frames a second, what a frame takes, display rate / refreshes a frame
 Scene 1440x1536  GPU 71%          the size the scene is drawn at, how busy the GPU was
 Eye 1440x1536  Draws 1874  MSAA 1 the eyes' pictures, draws in the last frame, multisampling
-Foveation 2  eyes 7R 3U           the foveation level, where you look (degrees right/left, up/down)
+Foveation 3  eyes 7R 3U           the foveation level, where you look (degrees right/left, up/down)
 ```
 
 `SHADPS4_VR_OVERLAY_SCALE=1..4` makes the text smaller or larger (2 unless told). Both overlays

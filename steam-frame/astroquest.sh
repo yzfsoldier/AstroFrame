@@ -151,11 +151,16 @@ esac
 
 sharpen=$(setting sharpen 0.6)
 [[ "$sharpen" != 0 ]] && export SHADPS4_VR_SHARPEN=$sharpen
-foveation=$(setting foveation 0)
+# Foveated rendering, strong, following the eyes, by default: on the Frame it keeps the scene at
+# its largest size where it would otherwise have to shrink.
+foveation=$(setting foveation 3)
 [[ "$foveation" != 0 ]] && export SHADPS4_FOVEATION=$foveation
-[[ "$(setting eye_tracking 1)" == 0 ]] && export SHADPS4_FOVEATION_EYES=0
-gaze_smoothing=$(setting gaze_smoothing)
-[[ -n "$gaze_smoothing" ]] && export SHADPS4_GAZE_SMOOTHING=$gaze_smoothing
+if [[ "$(setting eye_tracking 1)" == 0 ]]; then
+    export SHADPS4_FOVEATION_EYES=0
+else
+    export SHADPS4_FOVEATION_EYES=1
+fi
+export SHADPS4_GAZE_SMOOTHING=$(setting gaze_smoothing 1)
 gaze_offset=$(setting gaze_offset)
 [[ -n "$gaze_offset" ]] && export SHADPS4_GAZE_OFFSET=$gaze_offset
 [[ "$(setting overlay 0)" == 1 ]] && export SHADPS4_VR_OVERLAY=1
