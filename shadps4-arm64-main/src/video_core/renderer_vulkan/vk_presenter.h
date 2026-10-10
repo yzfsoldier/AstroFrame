@@ -11,6 +11,7 @@
 #include "imgui/imgui_texture.h"
 #include "video_core/renderer_vulkan/host_passes/fsr_pass.h"
 #include "video_core/renderer_vulkan/host_passes/pp_pass.h"
+#include "video_core/renderer_vulkan/host_passes/vr_overlay_pass.h"
 #include "video_core/renderer_vulkan/vk_instance.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
 #include "video_core/renderer_vulkan/vk_swapchain.h"
@@ -165,6 +166,12 @@ private:
     /// The same pass for the frames of the machine's own headset, which have a format of their
     /// own. Only made where there is such a headset to draw for.
     HostPasses::PostProcessingPass hmd_pp_pass;
+    /// The headset's debug overlay (SHADPS4_VR_OVERLAY, SHADPS4_FOVEATION_SHOW).
+    HostPasses::VrOverlayPass vr_overlay_pass;
+    bool vr_overlay_text{};
+    bool vr_overlay_foveation{};
+    std::vector<std::string> vr_overlay_lines;
+    void DrawVrOverlay(vk::CommandBuffer cmdbuf, Frame& frame, u32 eye_width, u32 eye_height);
     AmdGpu::Liverpool* liverpool;
     Scheduler draw_scheduler;
     Scheduler present_scheduler;

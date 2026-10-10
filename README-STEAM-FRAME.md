@@ -191,6 +191,8 @@ key and its default are explained in the file. The most useful:
 | --- | --- |
 | `foveation=0` | foveated rendering: `1`-`3` shade the scene ever more coarsely away from where you look, so the GPU has time for a larger picture. `2` is a good start: the scene then stays at full size where it otherwise drops to 960x1080 |
 | `eye_tracking=1` | with foveation on, the sharp middle follows your eyes (the Frame's eye tracking, through SteamVR); `0` keeps it in the middle of the picture |
+| `overlay=0` | `1`: a debug overlay in the headset (frame rate, frame time, display rate, scene size, GPU load, draws, foveation, gaze) |
+| `foveation_colors=0` | `1`: foveation's rings in colour over the picture (green: every pixel, yellow: 2x2, red: 4x4) and a mark where you look |
 | `resolution=` | the size of the scene per eye: `816`, `960`, `1200`, `1440`, larger widths, or `game`; empty: the emulator chooses, as large as the GPU manages (at most 1440x1536) |
 | `msaa=1` | the most samples a pixel gets: 1 (the default) is fastest, the emulator smooths edges itself; `4` lets the game multisample as on the console, for more GPU time |
 | `fov=85` | how much of the headset's field of view the game draws (50-100): less is sharper, with a soft border |
@@ -221,6 +223,26 @@ eye tracking the middle is where you look, moved once a frame; when the headset 
 
 At 36 frames a second the sharp middle follows a quick glance a frame late: if that shows, a
 milder level hides it.
+
+`foveation_colors=1` shows the rings over the picture: green where every pixel is shaded,
+yellow where one colour does for 2x2 pixels, red for 4x4, and a small white ring where the
+headset sees you look.
+
+### Debug overlay
+
+`overlay=1` puts a few lines of text above the middle of the picture, at the same place in
+both eyes (so they look far away), updated twice a second:
+
+```
+36 fps  27.8 ms  72 Hz/2          frames a second, what a frame takes, display rate / refreshes a frame
+Scene 1440x1536  GPU 71%          the size the scene is drawn at, how busy the GPU was
+Eye 1440x1536  Draws 1874  MSAA 1 the eyes' pictures, draws in the last frame, multisampling
+Foveation 2  eyes 7R 3U           the foveation level, where you look (degrees right/left, up/down)
+```
+
+`SHADPS4_VR_OVERLAY_SCALE=1..4` makes the text smaller or larger (2 unless told). Both overlays
+are drawn over the frame that goes to the headset, after the emulator's own passes, and cost
+next to nothing.
 
 ## Saves and logs
 
@@ -324,6 +346,10 @@ Quest is the same as before.
   64 threads in step, as GCN does).
 - `vk_rasterizer.cpp`, `vk_presenter.cpp`: the draw dump and `SHADPS4_DBG_SYNC` (see
   [Looking into the picture](#looking-into-the-picture)).
+- `host_passes/vr_overlay_pass.cpp`, `vk_presenter.cpp`, `known_title.cpp`: the headset's debug
+  overlay (`SHADPS4_VR_OVERLAY`) and foveation's rings in colour (`SHADPS4_FOVEATION_SHOW`),
+  drawn over the headset's frame with a built-in 8x16 font (made from DejaVu Sans Mono Bold);
+  the title's frame time, scene size and GPU load are kept for it (`KnownTitle::GetStatus`).
 - `src/video_core/...`: the mobile-GPU settings above, the pipeline cache warm-up skipped as
   under FEX on the Quest, and in `vk_platform.cpp` the OpenXR header included after the
   emulator's own (on Linux the Vulkan headers bring Xlib, whose `None` macro clashed).

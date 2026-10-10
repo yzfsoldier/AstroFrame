@@ -40,6 +40,16 @@
 # where SteamVR passes it on); 0: it stays in the middle of the picture.
 #eye_tracking=1
 
+# 1: a debug overlay in the headset: frame rate, what frames take, the display's rate and the
+# refreshes a frame is given, the size the scene is drawn at, how busy the GPU is, draws a
+# frame, multisampling, foveation and where the eyes look (updated twice a second).
+#overlay=0
+
+# 1: with foveation on, its rings in colour over the picture: green where every pixel is
+# shaded, yellow where one colour does for 2x2 pixels, red for 4x4; a small white ring where
+# the eyes look.
+#foveation_colors=0
+
 # The most samples a pixel gets (1, 2, 4, 8; the game draws with 8). 1 (the default): no
 # multisampling, the fastest; the emulator smooths edges itself, unless antialias=0. 4: the
 # game's own multisampling, sharper edges, more GPU time.

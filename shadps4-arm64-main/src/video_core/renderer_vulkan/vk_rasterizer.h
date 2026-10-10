@@ -64,6 +64,24 @@ public:
     void ArmDrawDump();
     void OnFrame();
 
+    /// Foveated rendering as it is this frame, for the headset's debug overlay: where the fine
+    /// middle is (-1..1 across the picture), and the rings, as a share of the way to its edge.
+    struct FoveationInfo {
+        bool enabled{};
+        bool follows_eyes{};
+        float center_x{};
+        float center_y{};
+        float inner{};
+        float outer{};
+        bool outer_4x4{};
+    };
+    FoveationInfo GetFoveationInfo() const;
+
+    /// Draws of the last frame (between the last two calls of OnFrame).
+    u32 LastFrameDraws() const {
+        return last_frame_draws;
+    }
+
     [[nodiscard]] VideoCore::BufferCache& GetBufferCache() noexcept {
         return buffer_cache;
     }
@@ -189,6 +207,8 @@ private:
     float foveation_gaze_x{};
     float foveation_gaze_y{};
     bool foveation_follows_eyes{};
+    u32 frame_draws{};
+    u32 last_frame_draws{};
 
     ImageDumper image_dumper;
     enum class DrawDumpState : u8 { Off, Armed, Active };

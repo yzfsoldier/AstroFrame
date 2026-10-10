@@ -9,7 +9,9 @@
 #include "core/debug_state.h"
 #include "core/devtools/layer.h"
 #include "core/emulator_settings.h"
+#include "core/known_title.h"
 #include "core/libraries/system/systemservice.h"
+#include "core/vr/eye_gaze.h"
 #include "core/vr/spectator_view.h"
 #ifdef ENABLE_OPENXR_HOST
 #include "core/vr/openxr_host.h"
@@ -544,6 +546,17 @@ Presenter::Presenter(Frontend::WindowSDL& window_, AmdGpu::Liverpool* liverpool_
         // The machine has a headset of its own: its session is made on this device.
         hmd_pp_pass.Create(instance, draw_scheduler.GetMasterSemaphore(),
                            Core::Vr::OpenXrHost::FrameFormat);
+        // SHADPS4_VR_OVERLAY=1: frame rate, the scene's size, how busy the GPU is ... over the
+        // picture; SHADPS4_FOVEATION_SHOW=1: foveated rendering's rings in colour.
+        const auto env_on = [](const char* name) {
+            const char* value = std::getenv(name);
+            return value != nullptr && value[0] != 0 && value[0] != '0';
+        };
+        vr_overlay_text = env_on("SHADPS4_VR_OVERLAY");
+        vr_overlay_foveation = env_on("SHADPS4_FOVEATION_SHOW");
+        if (vr_overlay_text || vr_overlay_foveation) {
+            vr_overlay_pass.Create(instance, Core::Vr::OpenXrHost::FrameFormat);
+        }
         Core::Vr::OpenXrHost::Instance().Start({
             .instance = instance.GetInstance(),
             .physical_device = instance.GetPhysicalDevice(),
@@ -1070,6 +1083,9 @@ HmdFrames Presenter::PrepareHmdFrame(std::span<const AmdGpu::Image, 2> eye_textu
         auto local_settings = hmd_settings;
         local_settings.linear_out = 1;
         hmd_pp_pass.Render(cmdbuf, regions_for(*local), *local, local_settings);
+        if (vr_overlay_text || vr_overlay_foveation) {
+            DrawVrOverlay(cmdbuf, *local, eye_width, eye_height);
+        }
         DebugState.output_resolution = {local->width, local->height};
     }
     DebugState.game_resolution = {eye_width * 2, eye_height};
@@ -1095,6 +1111,80 @@ bool Presenter::IsGpuBusy() {
     // The tick being recorded has not been handed to the GPU yet; the one before it has.
     const u64 recording = draw_scheduler.CurrentTick();
     return recording > 1 && !draw_scheduler.IsFree(recording - 1);
+}
+
+void Presenter::DrawVrOverlay(vk::CommandBuffer cmdbuf, Frame& frame, u32 eye_width,
+                              u32 eye_height) {
+    using Clock = std::chrono::steady_clock;
+    static Clock::time_point since = Clock::now();
+    static u32 frames = 0;
+    static float fps = 0.0f;
+    ++frames;
+    const auto now = Clock::now();
+    const double seconds = std::chrono::duration<double>(now - since).count();
+    // The text anew twice a second: numbers that change every frame cannot be read.
+    if (seconds >= 0.5 || (vr_overlay_text && vr_overlay_lines.empty())) {
+        if (seconds > 0.0 && frames > 1) {
+            fps = static_cast<float>(frames / seconds);
+        }
+        since = now;
+        frames = 0;
+        vr_overlay_lines.clear();
+        if (vr_overlay_text) {
+            const auto status = Core::KnownTitle::GetStatus();
+            const float refresh = Core::Vr::Runtime::Instance().HeadsetRefreshRate();
+            vr_overlay_lines.push_back(
+                status.pace != 0
+                    ? fmt::format("{:.0f} fps  {:.1f} ms  {:.0f} Hz/{}", fps, status.frame_ms,
+                                  refresh, status.pace)
+                    : fmt::format("{:.0f} fps  {:.0f} Hz", fps, refresh));
+            if (status.scene_width != 0) {
+                vr_overlay_lines.push_back(fmt::format("Scene {}x{}  GPU {:.0f}%",
+                                                       status.scene_width, status.scene_height,
+                                                       status.gpu_load * 100.0f));
+            }
+            static const std::string msaa = [] {
+                const char* value = std::getenv("SHADPS4_MAX_MSAA");
+                return std::string{value != nullptr ? value : "-"};
+            }();
+            vr_overlay_lines.push_back(fmt::format("Eye {}x{}  Draws {}  MSAA {}", eye_width,
+                                                   eye_height, rasterizer->LastFrameDraws(),
+                                                   msaa));
+            const auto foveation = rasterizer->GetFoveationInfo();
+            static const std::string level = [] {
+                const char* value = std::getenv("SHADPS4_FOVEATION");
+                return std::string{value != nullptr ? value : "0"};
+            }();
+            if (!foveation.enabled) {
+                vr_overlay_lines.push_back("Foveation off");
+            } else if (const auto gaze =
+                           Core::Vr::EyeGaze::Get(std::chrono::milliseconds{500});
+                       gaze && foveation.follows_eyes) {
+                const float right = std::atan(gaze->tan_x) * 57.29578f;
+                const float up = std::atan(gaze->tan_y) * 57.29578f;
+                vr_overlay_lines.push_back(fmt::format("Foveation {}  eyes {:.0f}{} {:.0f}{}",
+                                                       level, std::abs(right),
+                                                       right < 0.0f ? "L" : "R", std::abs(up),
+                                                       up < 0.0f ? "D" : "U"));
+            } else {
+                vr_overlay_lines.push_back(fmt::format("Foveation {}  middle", level));
+            }
+        }
+    }
+    HostPasses::VrOverlayPass::Foveation rings{};
+    if (vr_overlay_foveation) {
+        const auto foveation = rasterizer->GetFoveationInfo();
+        rings = {
+            .show = foveation.enabled,
+            .center_x = foveation.center_x,
+            .center_y = foveation.center_y,
+            .inner = foveation.inner,
+            .outer = foveation.outer,
+            .outer_4x4 = foveation.outer_4x4,
+            .follows_eyes = foveation.follows_eyes,
+        };
+    }
+    vr_overlay_pass.Render(cmdbuf, frame, rings, vr_overlay_lines);
 }
 
 bool Presenter::DeliverHmdFrame(Frame* frame, const Core::Vr::PresentedFrame& info) {

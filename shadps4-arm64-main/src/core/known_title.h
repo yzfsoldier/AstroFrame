@@ -43,6 +43,17 @@ void OnFrameSubmitted();
 /// the display again, at a frame for every three refreshes.
 u32 FramePace();
 
+/// What the last frames of the title were like, for the headset's debug overlay. Zeros where
+/// nothing is known (another title, or none drawn yet).
+struct Status {
+    u32 scene_width{};  ///< the size the scene is drawn at, an eye
+    u32 scene_height{};
+    float frame_ms{};   ///< what frames take, smoothed
+    float gpu_load{};   ///< how busy the GPU was, 0..1, over the last half second it was measured
+    u32 pace{};         ///< refreshes of the display a frame is given
+};
+Status GetStatus();
+
 /// Called with the head position just handed to the title: what the title makes of it goes to
 /// the log every now and then, and whenever the title takes stock of the player's seat anew.
 void NoteView(const Vr::Vec3& tracker_head);

@@ -365,8 +365,25 @@ void Rasterizer::ArmDrawDump() {
     draw_dump_state = DrawDumpState::Armed;
 }
 
+Rasterizer::FoveationInfo Rasterizer::GetFoveationInfo() const {
+    if (!instance.IsShadingRateAttachmentEnabled()) {
+        return {};
+    }
+    const auto rings = GetFoveationRings();
+    return FoveationInfo{
+        .enabled = true,
+        .follows_eyes = foveation_follows_eyes,
+        .center_x = foveation_gaze_x,
+        .center_y = foveation_gaze_y,
+        .inner = rings.inner,
+        .outer = rings.outer,
+        .outer_4x4 = rings.outer_4x4 && instance.HasShadingRate4x4(),
+    };
+}
+
 void Rasterizer::OnFrame() {
     ++draw_dump_frame;
+    last_frame_draws = std::exchange(frame_draws, 0u);
 
     // Foveated rendering follows the eyes where the headset tells where they look: this
     // frame's passes have the fine middle there. What the title draws reaches to its field of
@@ -380,6 +397,7 @@ void Rasterizer::OnFrame() {
             foveation_gaze_x = std::clamp(gaze->tan_x / title->tan_x, -0.85f, 0.85f);
             foveation_gaze_y = std::clamp(-gaze->tan_y / title->tan_y, -0.85f, 0.85f);
         } else {
+            foveation_follows_eyes = false;
             foveation_gaze_x = 0.0f;
             foveation_gaze_y = 0.0f;
         }
@@ -828,6 +846,7 @@ void Rasterizer::Draw(bool is_indexed, u32 index_offset) {
                     instance_offset);
     }
 
+    ++frame_draws;
     DumpAfterDraw("draw", pipeline);
     DebugSyncAfterWork();
     ResetBindings();
@@ -985,6 +1004,7 @@ void Rasterizer::DrawIndirect(bool is_indexed, VAddr arg_address, u32 offset, u3
         }
     }
 
+    ++frame_draws;
     DumpAfterDraw("indirect", pipeline);
     DebugSyncAfterWork();
     ResetBindings();

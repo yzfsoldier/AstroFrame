@@ -137,6 +137,10 @@ constexpr s32 SlowestPace = 6;
 /// The refreshes of the display frames are given at the moment, for the thread that makes
 /// the headset's.
 std::atomic<u32> frame_pace{0};
+// For the headset's debug overlay (GetStatus): what the last frames were like.
+std::atomic<u32> status_scene{0};      ///< width << 16 | height, 0: not known
+std::atomic<u32> status_frame_us{0};   ///< what frames take, smoothed, in microseconds
+std::atomic<u32> status_gpu_load{0};   ///< how busy the GPU was, in tenths of a percent
 
 struct Settings {
     bool time_step{true};
@@ -326,6 +330,8 @@ private:
             faster_windows = 0;
             return;
         }
+        status_gpu_load.store(static_cast<u32>(std::min(load, 1.0f) * 1000.0f),
+                              std::memory_order_relaxed);
         summary_load += std::min(load, 1.0f);
         ++summary_windows;
 
@@ -820,6 +826,16 @@ void OnFrameSubmitted() {
     }
     const s32 resolution = TendResolution(base, *build, wanted);
     frame_pace.store(governor.Pace(), std::memory_order_relaxed);
+    if (resolution >= 0 && resolution <= LastHeadsetLevel) {
+        const auto& size = GetLarger().sizes[resolution];
+        status_scene.store((static_cast<u32>(size[0]) << 16) | static_cast<u32>(size[1]),
+                           std::memory_order_relaxed);
+    }
+    if (frame <= Stall) {
+        static double smoothed = 0.0;
+        smoothed = smoothed == 0.0 ? frame : smoothed * 0.9 + frame * 0.1;
+        status_frame_us.store(static_cast<u32>(smoothed * 1e6), std::memory_order_relaxed);
+    }
 
     if (settings.time_step) {
         // Shorter steps than the title's own only where it is made to draw faster than it
@@ -859,6 +875,17 @@ void OnFrameSubmitted() {
 
 u32 FramePace() {
     return frame_pace.load(std::memory_order_relaxed);
+}
+
+Status GetStatus() {
+    const u32 scene = status_scene.load(std::memory_order_relaxed);
+    return Status{
+        .scene_width = scene >> 16,
+        .scene_height = scene & 0xffff,
+        .frame_ms = status_frame_us.load(std::memory_order_relaxed) / 1000.0f,
+        .gpu_load = status_gpu_load.load(std::memory_order_relaxed) / 1000.0f,
+        .pace = frame_pace.load(std::memory_order_relaxed),
+    };
 }
 
 void Prepare() {
