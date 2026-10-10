@@ -224,6 +224,13 @@ eye tracking the middle is where you look, moved once a frame; when the headset 
 At 36 frames a second the sharp middle follows a quick glance a frame late: if that shows, a
 milder level hides it.
 
+The headset's readings of where you look tremble a little, as eyes do: they are smoothed while
+your gaze rests and followed at once when it jumps (`gaze_smoothing=1`, in Hz: smaller is
+steadier, `0` takes them as they come). Where the sharp middle sits a little beside where you
+look, `gaze_offset=<right>,<up>` moves it by that many degrees. (Each eye sees what you look at
+a little to one side of where the head's gaze points - more the closer it is - and the map is
+one for both eyes, so up close a degree or two of that is to be expected.)
+
 `foveation_colors=1` shows the rings over the picture: green where every pixel is shaded,
 yellow where one colour does for 2x2 pixels, red for 4x4, and a small white ring where the
 headset sees you look.

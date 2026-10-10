@@ -6,6 +6,7 @@
 #include <atomic>
 #include <chrono>
 #include <cmath>
+#include <utility>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -464,6 +465,35 @@ struct OpenXrHost::Impl {
     XrSpace gaze_space{XR_NULL_HANDLE};
     bool gaze_seen{};
     u32 gaze_lost_frames{};
+    /// Eye trackers' readings tremble (the eye itself never stands quite still, and the
+    /// tracker adds noise of its own): a "one euro" filter smooths them while the gaze rests
+    /// and lets it follow at once when it jumps (a saccade), by how fast it moves.
+    struct GazeFilter {
+        float value{};
+        float speed{};
+        bool primed{};
+
+        static float Alpha(float cutoff, float dt) {
+            const float tau = 1.0f / (2.0f * 3.14159265f * cutoff);
+            return 1.0f / (1.0f + tau / dt);
+        }
+        float Filter(float x, float dt, float min_cutoff, float beta) {
+            if (!primed || dt <= 0.0f || dt > 0.5f) {
+                primed = true;
+                value = x;
+                speed = 0.0f;
+                return x;
+            }
+            const float a_speed = Alpha(1.0f, dt);
+            speed += a_speed * ((x - value) / dt - speed);
+            const float a = Alpha(min_cutoff + beta * std::abs(speed), dt);
+            value += a * (x - value);
+            return value;
+        }
+    };
+    GazeFilter gaze_filter_x;
+    GazeFilter gaze_filter_y;
+    Clock::time_point gaze_last;
     // Where each hand holds something, as far as the headset's runtime says where its own
     // controllers are: with a gamepad in both hands and those controllers put away, a runtime
     // that makes controllers up from the hands it sees (Virtual Desktop does) says where the
@@ -1228,8 +1258,37 @@ struct OpenXrHost::Impl {
         if (dir_z > -0.2f) {
             return;
         }
-        const float tan_x = dir_x / -dir_z;
-        const float tan_y = dir_y / -dir_z;
+        // SHADPS4_GAZE_OFFSET=<right>,<up>: degrees to move what the headset says by, where its
+        // calibration is off for someone.
+        static const std::pair<float, float> offset = [] {
+            const char* value = std::getenv("SHADPS4_GAZE_OFFSET");
+            float right = 0.0f;
+            float up = 0.0f;
+            if (value != nullptr) {
+                char* end = nullptr;
+                right = std::strtof(value, &end);
+                if (end != nullptr && *end == ',') {
+                    up = std::strtof(end + 1, nullptr);
+                }
+            }
+            return std::pair{right * 0.01745329f, up * 0.01745329f};
+        }();
+        // SHADPS4_GAZE_SMOOTHING=<Hz>: how slowly a resting gaze may drift (1 unless told; 0:
+        // the readings as they are); SHADPS4_GAZE_FOLLOW: how much faster it follows a gaze
+        // that moves (per radian a second).
+        static const float min_cutoff = EnvFloat("SHADPS4_GAZE_SMOOTHING", 1.0f);
+        static const float beta = EnvFloat("SHADPS4_GAZE_FOLLOW", 3.0f);
+        float angle_x = std::atan2(dir_x, -dir_z) + offset.first;
+        float angle_y = std::atan2(dir_y, -dir_z) + offset.second;
+        const auto now = Clock::now();
+        if (min_cutoff > 0.0f) {
+            const float dt = std::chrono::duration<float>(now - gaze_last).count();
+            angle_x = gaze_filter_x.Filter(angle_x, dt, min_cutoff, beta);
+            angle_y = gaze_filter_y.Filter(angle_y, dt, min_cutoff, beta);
+        }
+        gaze_last = now;
+        const float tan_x = std::tan(angle_x);
+        const float tan_y = std::tan(angle_y);
         EyeGaze::Set(tan_x, tan_y);
         if (!gaze_seen) {
             gaze_seen = true;

@@ -146,6 +146,10 @@ sharpen=$(setting sharpen 0.6)
 foveation=$(setting foveation 0)
 [[ "$foveation" != 0 ]] && export SHADPS4_FOVEATION=$foveation
 [[ "$(setting eye_tracking 1)" == 0 ]] && export SHADPS4_FOVEATION_EYES=0
+gaze_smoothing=$(setting gaze_smoothing)
+[[ -n "$gaze_smoothing" ]] && export SHADPS4_GAZE_SMOOTHING=$gaze_smoothing
+gaze_offset=$(setting gaze_offset)
+[[ -n "$gaze_offset" ]] && export SHADPS4_GAZE_OFFSET=$gaze_offset
 [[ "$(setting overlay 0)" == 1 ]] && export SHADPS4_VR_OVERLAY=1
 [[ "$(setting foveation_colors 0)" == 1 ]] && export SHADPS4_FOVEATION_SHOW=1
 # One sample a pixel by default (the emulator smooths edges itself), as on the Quest: the fastest.

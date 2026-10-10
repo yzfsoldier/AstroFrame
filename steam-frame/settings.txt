@@ -40,6 +40,17 @@
 # where SteamVR passes it on); 0: it stays in the middle of the picture.
 #eye_tracking=1
 
+# How steady the eye tracking is kept: the readings tremble, and are smoothed while the gaze
+# rests (a jump of the eyes is followed at once). The number is how fast a resting gaze may
+# drift, in Hz: smaller is steadier and slower, larger follows more closely. 0: as the headset
+# says.
+#gaze_smoothing=1
+
+# Degrees to move where the headset says you look by, right and up (negative: left, down),
+# for when the sharp middle sits a little beside where you look (foveation_colors=1 shows it):
+# gaze_offset=2,-1
+#gaze_offset=0,0
+
 # 1: a debug overlay in the headset: frame rate, what frames take, the display's rate and the
 # refreshes a frame is given, the size the scene is drawn at, how busy the GPU is, draws a
 # frame, multisampling, foveation and where the eyes look (updated twice a second).
