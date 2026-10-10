@@ -250,6 +250,14 @@ one for both eyes, so up close a degree or two of that is to be expected.)
 yellow where one colour does for 2x2 pixels, red for 4x4, and a small white ring where the
 headset sees you look.
 
+| Looking through the arch | Looking to the right, at the coins |
+| --- | --- |
+| ![Foveated rendering with its rings in colour, the gaze in the middle of the picture](steam-frame/images/foveation-middle.jpg) | ![Foveated rendering with its rings in colour, the gaze moved to the right](steam-frame/images/foveation-gaze-right.jpg) |
+
+*From the headset, with `foveation_colors=1`: the white ring is where the Frame's eye tracking
+sees you look, and the rings follow it. Out in the red the 4x4 blocks show on the floor's fine
+pattern; where you look, the picture is shaded at every pixel.*
+
 ### Debug overlay
 
 `overlay=1` puts a few lines of text a little above the middle of the picture
