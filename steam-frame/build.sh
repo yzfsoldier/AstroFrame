@@ -11,7 +11,7 @@
 # Where it builds:
 #   - natively on an aarch64 Linux machine, best inside the Steam Linux Runtime 3.0 (sniper)
 #     SDK for arm64, so that the program runs in the runtime the headset starts it in (the
-#     Devkit Client's "Steam Linux Runtime 3.0 ARM64 (Sniper)"); see README-STEAM-FRAME.md;
+#     Devkit Client's "Steam Linux Runtime 3.0 ARM64 (Sniper)"); see README.md;
 #   - on an x86-64 Linux machine with STEAM_FRAME_CROSS=1 (clang, lld and a GCC aarch64 cross
 #     sysroot, or STEAM_FRAME_SYSROOT=<dir>): see toolchain-aarch64-cross.cmake.
 #
@@ -296,7 +296,7 @@ package() {
     command -v "$strip_tool" >/dev/null && "$strip_tool" --strip-debug "$dist/bin/shadps4" || true
     cp "$here/astroquest.sh" "$dist/astroquest.sh"
     cp "$here/settings.txt" "$dist/settings.txt"
-    cp "$root/README-STEAM-FRAME.md" "$dist/README-STEAM-FRAME.md"
+    cp "$root/README.md" "$dist/README.md"
     cp "$root/LICENSE" "$dist/LICENSE"
     cp "$root/THIRD-PARTY-NOTICES.md" "$dist/THIRD-PARTY-NOTICES.md"
     chmod +x "$dist/astroquest.sh" "$dist/bin/shadps4"
@@ -318,7 +318,7 @@ EOF
     say "Done: $dist (and build/AstroQuest-SteamFrame.tar.gz)"
     echo "Upload the folder with the SteamOS Devkit Client: Start Command 'astroquest.sh',"
     echo "Runtime 'Steam Linux Runtime 3.0 ARM64 (Sniper)' - or over SSH, executable bits kept:"
-    echo "steam-frame/deploy.sh steamos@<headset address>. See README-STEAM-FRAME.md."
+    echo "steam-frame/deploy.sh steamos@<headset address>. See README.md."
 }
 
 case "$step" in

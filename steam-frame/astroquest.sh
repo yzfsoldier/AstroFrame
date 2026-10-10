@@ -87,7 +87,7 @@ fi
 game_dir=$(dirname "$game")
 if [[ ! -f "$game_dir/sce_sys/param.sfo" ]]; then
     say "$game_dir has no sce_sys/param.sfo: without it the emulator does not recognise the game."
-    say "(A game unpacked from a .pkg needs it extracted separately; see README.md.)"
+    say "(A game unpacked from a .pkg needs it extracted separately; see README-ORIGINAL.md in the repository.)"
     exit 1
 fi
 if [[ ! -f "$game_dir/sce_module/libc.prx" ]]; then

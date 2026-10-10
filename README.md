@@ -1,311 +1,409 @@
-# AstroQuest
+# ASTRO BOT Rescue Mission on the Steam Frame
 
-**ASTRO BOT Rescue Mission (PS4 / PlayStation VR) in virtual reality on Meta Quest 3**, played
-from your own copy of the game through a PS4 emulator. Ways to play:
+> This fork of [AstroQuest](https://github.com/bigmak94/AstroQuest) is about the Steam Frame
+> version. The Quest 3 app and the PC version are the original project's, unchanged here; their
+> README is [README-ORIGINAL.md](README-ORIGINAL.md) (with [README-QUEST-VR.md](README-QUEST-VR.md)
+> and [README-PC-VR.md](README-PC-VR.md)).
 
-- **On the headset alone**: an app for the Quest 3 runs the emulator on the headset itself. No
-  PC is needed once it is installed. Please note: while the standalone Meta Quest 3 build is
-  fully functional and playable, the headset’s mobile GPU is pushed to its limits. As a result,
-  native standalone visuals run at lower resolutions and visual fidelity compared to the original
-  PS4 hardware or the PC VR mode.
-- **On a Windows PC, shown in the Quest through Virtual Desktop**: the PC runs the game at the
-  console's 60 frames a second and at up to six times its resolution.
-- **On a Windows PC with a Valve Index through SteamVR**: the same PC build uses SteamVR's
-  OpenXR runtime and a DualSense connected to the PC. Headset playback has been reported working; see
-  [the Index setup](README-PC-VR.md#valve-index-through-steamvr), including controller
-  positional-tracking limits. Other PC headsets go the same way, through SteamVR or an OpenXR
-  runtime of their own: a Bigscreen Beyond and a Pimax Dream Air have been reported working.
-- **On a Steam Frame alone** (early, but it plays): the emulator runs as a native Linux ARM64
-  program on the Frame's SteamOS, without Android or Lepton, and shows the game through the
-  headset's OpenXR runtime, with foveated rendering that follows the Frame's eye tracking. Built
-  from source; see [README-STEAM-FRAME.md](README-STEAM-FRAME.md).
+AstroQuest plays ASTRO BOT Rescue Mission in VR through a PS4 emulator; this is the way to play
+it **on Valve's Steam Frame on its own, as a native Linux program.** The Frame runs SteamOS on an
+ARM64 Snapdragon chip, so the emulator does not need an Android app around it (and not Lepton,
+the Frame's Android layer): it runs as an ordinary Linux ARM64 program and shows the game
+through the headset's own OpenXR runtime.
 
-The emulator is [shadPS4](https://github.com/shadps4-emu/shadPS4) (its ARM64 build,
-[zenithblue-oss/shadps4-arm64](https://github.com/zenithblue-oss/shadps4-arm64), on the
-headset), to which this project adds what the game needs from a PlayStation VR: the headset,
-its tracking and reprojection, the camera's view of the controller (taken from the Quest's
-hand tracking), the 3D sound engine, the microphone, and fixes for the game's timing and
-resolution under emulation.
+> **Status: plays on a Steam Frame.** Built in the Steam Linux Runtime's arm64 SDK (also on an
+> x86 PC, in that SDK's container under emulation), uploaded and started with the Devkit
+> Client, shown through SteamVR's OpenXR runtime. The game runs at its full speed at 36 frames a
+> second (the display at 72 Hz, two refreshes a frame); with foveated rendering and eye tracking
+> the scene stays at 1440x1536 an eye even in the busiest places of the first worlds. Still
+> early: please report what you find.
 
 > **No game files are included or distributed.** You need your own copy of ASTRO BOT Rescue
-> Mission, dumped from your own PlayStation 4.
+> Mission (CUSA12392, version 1.00 or 1.04), dumped from your own PlayStation 4 - the same as for
+> the other two ways, see [README-ORIGINAL.md](README-ORIGINAL.md).
 
-| | PlayStation 4 + PS VR | Quest 3 on its own | PC + Virtual Desktop |
-| --- | --- | --- | --- |
-| Frames a second | 60 | 30 in levels, 45 in lighter scenes | 60 (more if you ask for it) |
-| Picture per eye | 960x1080 to 1440x1536 | 816x870 to 1440x1536 | 1440x1536 up to 3600x3840 |
-| Edges | multisampled | smoothed by a filter | multisampled |
+## How it fits together
 
-## Status
+```
+Steam Frame (SteamOS, ARM64)
+└─ astroquest.sh  (started by Steam, in the Steam Linux Runtime 3.0 ARM64 "sniper")
+   └─ shadps4  (aarch64 Linux, glibc)  - the same emulator core as on the Quest
+      ├─ FEX runs the game's x86-64 code
+      ├─ Vulkan through the system's driver (Mesa Turnip on the Adreno 750)
+      │  └─ foveated rendering: the scene shaded more coarsely away from where you look
+      ├─ OpenXR host inside the emulator (the one the PC build uses): head pose, the Frame's
+      │  controllers, hand tracking, eye tracking, frames to the compositor, which reprojects
+      │  them like PSVR did
+      ├─ gamepads (DualSense ...) through SDL, as on the PC
+      ├─ sound and microphone through SDL (PipeWire)
+      └─ emulated PSVR: HMD, tracker, camera, reprojection, social screen
+```
 
-Work in progress, built and tested by one person on one Quest 3 and one PC. World 1 & 2has been 
-played through on the Quest 3 on its own; the PC path has been played
-over Virtual Desktop and fixed since. Expect rough edges, and please report what you find.
+What the Quest app does in its own Android process (the OpenXR session, controllers, sound,
+microphone) the emulator does itself here, with the code the PC build has had for SteamVR, Virtual
+Desktop and the Index. From the Quest build it keeps what suits a headset with a phone's GPU: the
+memory budget of a GPU that shares the system's memory, the GPU work sent in parts to a tiling
+GPU, the address-space layout FEX needs, and the defaults (field of view 85%, no multisampling
+with the driver drawing straight into memory, the emulator choosing pace and picture size,
+sharpening). On top of that the Frame build has what the Quest's runtime does not give an
+emulator in another process: the headset's eye tracking, for foveated rendering.
 
 ## What you need
 
-- **A Meta Quest 3, or a Valve Index connected to a Windows PC running SteamVR.**
-  (The Quest 3S has the same chip and should work, but nobody has tried.)
-- **Something to play with.** A PS5 DualSense controller is best: it stands in for the PS4
-  controller the game expects with everything that one has (buttons, sticks, touchpad, motion
-  sensors, rumble and light bar; a DualShock 4 should do the same, untested). Without one,
-  **the Quest's own Touch controllers play the game**, on the headset alone as on the PC.
-  Other gamepads play too (Xbox, 8BitDo and the like): what they lack of a PS4 controller,
-  the touchpad and the motion sensors, is made up for, see "Playing" below.
-- **ASTRO BOT Rescue Mission, European release CUSA12392, version 1.00 or 1.04** (the game
-  as on its disc, or with its last update), dumped from your own console and game: either as
-  the game's folder (the one with `eboot.bin`, `sce_sys`, `sce_module` in it, about 13 GB) or
-  as the `.pkg` package made from the dump, which the PC launcher unpacks by itself. (A
-  package downloaded from the PlayStation Store is encrypted and cannot be used; a package
-  that is only the game's update is not the game: unpacked into a folder named
-  `CUSA12392-UPDATE` next to the game's `CUSA12392`, it is played over it.) Other regions and
-  the versions in between are untested, and the fixes for the game's timing and resolution
-  only apply to these two.
-- To install on the headset: a computer with
-  [adb](https://developer.android.com/tools/releases/platform-tools) (or
-  [SideQuest](https://sidequestvr.com/)) and the headset in
-  [developer mode](https://developers.meta.com/horizon/documentation/native/android/mobile-device-setup/#enable-developer-mode)
-  (set in the Meta Horizon app on your phone; on Windows, adb may also need Meta's ADB
-  driver, described on the same page).
-- To play on the PC: Windows 10 or 11 (64-bit), a graphics card with Vulkan 1.3, 16 GB of
-  memory or more (the emulator asks Windows for about 14 GB), the
-  [Microsoft Visual C++ Redistributable (x64)](https://aka.ms/vs/17/release/vc_redist.x64.exe)
-  (the launcher says so if it is missing), and [Virtual Desktop](https://www.vrdesktop.net/)
-  (the app on the Quest, the Streamer on the PC).
+- A **Steam Frame** in Developer Mode (Settings > System > Developer Mode).
+- A PC with the **SteamOS Devkit Client** (`steam://install/943760` in Steam), paired with the
+  headset (Settings > Developer > Pair new host on the headset, then Register in the client's
+  Devkits tab).
+- Your **game**: the folder `CUSA12392` (with `eboot.bin`, `sce_sys`, `sce_module`), and an
+  update, if you have one, as `CUSA12392-UPDATE` next to it. A `.pkg` has to be unpacked first,
+  as described in [README-ORIGINAL.md](README-ORIGINAL.md).
+- Something to play with: the Frame's own controllers do (the right one is the controller in the
+  game, as with the Quest's), or a DualSense paired with the headset over Bluetooth.
 
-## Installing: Quest 3 on its own
+## Building
 
-Download `AstroQuest-<version>-Quest3.apk` from the
-[latest release](https://github.com/bigmak94/AstroQuest/releases/latest), then:
+There is no ready-made build yet; it is built from this repository with
+[`steam-frame/build.sh`](steam-frame/build.sh), which fetches the libraries and FEX at the
+commits the project pins, builds FEXCore, the emulator (`-DENABLE_STEAM_FRAME=ON`) and puts
+together `build/AstroQuest-SteamFrame/`.
 
-1. **Install the app.** Connect the headset to the computer with a USB cable, allow USB
-   debugging in the headset, and run
+### In the Steam Linux Runtime's arm64 SDK (for the headset)
 
-   ```sh
-   adb install -r AstroQuest-0.20-Quest3.apk
-   ```
+Steam starts Linux ARM64 programs on the Frame in the Steam Linux Runtime 3.0 (sniper), whose C
+library (glibc 2.31) is older than current distributions'; a program built against a newer one
+does not start there. So the build for the headset is made in sniper's SDK for arm64, which Valve
+publishes as the container image `registry.gitlab.steamos.cloud/steamrt/sniper/sdk/arm64:latest`.
+On an aarch64 machine (a Raspberry Pi 5, an ARM cloud machine, an ARM Mac with a Linux VM) it
+runs natively; on an x86-64 PC, Docker runs it through qemu (Docker Desktop does that by itself,
+also with WSL 2; elsewhere `docker run --privileged --rm tonistiigi/binfmt --install arm64` sets
+it up once). Under emulation the first build takes hours, later ones only rebuild what changed.
 
-   (or drag the APK onto SideQuest).
-2. **Copy the game to the headset**, the folder named `CUSA12392` (this takes a few minutes):
-
-   ```sh
-   adb push CUSA12392 /data/local/tmp/astro/games/
-   ```
-
-   The app also finds it in `/sdcard/Android/data/com.astrobotquest.vrhost/files/games/CUSA12392`,
-   but that folder is deleted with the app if it is ever uninstalled.
-
-   **If your game is a `.pkg` file**, unpack it on a PC first: the headset needs the game's
-   folder. Two ways:
-
-   - **The easy one, on Windows**: download `AstroQuest-<version>-PC-VR-Windows.zip` from the
-     same release, unzip it, put your `.pkg` in its `games` folder and start
-     `Play Astro Bot VR.bat`. It offers to unpack the package (about a minute, 13 GB); you can
-     close it after that. `games\CUSA12392` is then the folder to copy to the headset. You do
-     not need Virtual Desktop or a VR-ready PC for this.
-   - **By hand, with the tool it uses**: [PkgTool](https://github.com/maxton/LibOrbisPkg/releases/tag/v0.2)
-     (`PkgTool-0.2.231.zip`, free and open source; Windows, or the `PkgTool.Core` builds for
-     Linux and macOS). `PkgTool pkg_extract --passcode 00000000000000000000000000000000 game.pkg out`
-     puts the game in `out/uroot`: rename that folder `CUSA12392`. Then add the game's
-     description, which the package keeps apart: `PkgTool pkg_listentries game.pkg` shows the
-     number of `PARAM_SFO`, and `PkgTool pkg_extractentry game.pkg <number> CUSA12392/sce_sys/param.sfo`
-     writes it. Without `param.sfo` the emulator does not recognise the game.
-
-   Either way, only a package made from a dump of the game can be unpacked; one downloaded
-   from the PlayStation Store is encrypted.
-3. **If you play with a gamepad, pair it with the headset**: Settings > Bluetooth > Pair (on
-   a DualSense, hold Create and the PS button until the light bar flashes). The Touch
-   controllers need nothing.
-4. **Start "Astro VR Host"** from the App Library, under *Unknown Sources*. The first start
-   takes a few seconds longer (it unpacks the emulator) and asks for the microphone: the game
-   listens to it for blowing at things, as it did with PlayStation VR's.
-
-Playing:
-
-- The app begins with a menu for the field of view: a stick to a side chooses, ✕ / A or a
-  trigger starts the game.
-- **With a gamepad**: put the Touch controllers aside and hold it. The headset tracks your
-  hands around it, and that is where the controller is in the game. A gamepad without motion
-  sensors, which is every one that is not a PlayStation's, is turned and tilted in the game
-  by your hands, as far as the headset sees them.
-- **With the Touch controllers**: the right one is the controller in the game, where it is
-  and the way it points. Left stick to move; A is ✕, B is □, X is ○, Y is △; the left
-  controller's menu button is OPTIONS. X and Y together blow, where the game wants you to
-  blow into the microphone.
-- **The touchpad, on the Touch controllers and on a gamepad that has none**, is on buttons
-  (a card in the headset says so when the game starts, and again whenever you press
-  OPTIONS):
-  - **right trigger (R2): press it and hold**: the water cannon, the machine gun
-  - **right grip (R1): swipe forward**: the hook, the throwing stars, the chests
-  - **left trigger (L2): pull back, let go to shoot**: the catapult at the end of every
-    level (point the controller at the goal)
-  - the right stick is a finger on it, for anything else.
-- With both at hand, the game is played with the one you used last: a button on the other
-  changes over.
-- **To turn round without turning yourself** (on a seat that does not turn): hold the left
-  grip, or L1 on a gamepad, and flick the right stick to a side. Each flick turns the view 30
-  degrees that way; resetting the view faces you straight ahead again.
-- **The game speaks the headset's language**, of those it has (28; English otherwise).
-- The first screen asks to move the controller into a floating outline: hold it up in front
-  of you where the outline is.
-- On the world map, **look** at a planet and press ✕.
-- **Reset the view** by holding OPTIONS for a second (or pressing the PS button; with the
-  Touch controllers, hold the left menu button for a second or press both sticks in)
-  whenever you sit differently and things are too close, too far or off to one side.
-- Taking the headset off pauses the game.
-- Settings (refresh rate, resolution, field of view, sharpening, microphone gain...) go in
-  `/sdcard/Android/data/com.astrobotquest.vrhost/files/vrhost.txt`; all of them are explained in
-  [README-QUEST-VR.md](README-QUEST-VR.md).
-
-Your saves are kept in `/sdcard/Android/data/com.astrobotquest.vrhost/files/data/shadPS4/home/1000/savedata`.
-Updating the app with `adb install -r` keeps them; **uninstalling deletes them**, so copy that
-folder off the headset first (`adb pull`).
-
-## Installing: PC VR through Virtual Desktop
-
-Download `AstroQuest-<version>-PC-VR-Windows.zip` from the
-[latest release](https://github.com/bigmak94/AstroQuest/releases/latest), then:
-
-1. **Unzip it** into a folder with a short path, e.g. `C:\Games\AstroQuest`. Some of the
-   game's files have long names, and the emulator cannot open a file whose full path is
-   longer than Windows' 260 characters: keep the path of the folder that holds `games` under
-   about 110 characters.
-2. **Put your copy of the game in its `games` folder**, anywhere in it: the game's folder
-   (the one with `eboot.bin` in it) or its `.pkg` file. A package is unpacked the first time
-   you start, which takes a minute or so and about 13 GB. You can also leave the game where
-   it is: when the launcher finds none, a window asks where it is and remembers the answer.
-3. **Set up Virtual Desktop**: install the Streamer on the PC and, in its Options, choose
-   **VDXR** as the OpenXR runtime. In the headset, in Virtual Desktop's Streaming settings,
-   set the frame rate to **120** (the game then runs at 60 frames a second, as on the console).
-4. **Connect the DualSense to the PC**, by USB cable or by Bluetooth paired with the PC, not
-   with the headset: paired with the headset, it reaches the PC without motion sensors or
-   touchpad. The Touch controllers play as well: with no gamepad on the PC, and with one
-   whenever they were the ones used last.
-5. **Connect to the PC with Virtual Desktop**, then start **`Play Astro Bot VR.bat`** on the
-   desktop you see in the headset. The first time, it offers to unpack the game if it is a
-   package (or asks where the game is). Then a small window lets you choose each eye's resolution, the
-   frame rate, the game's language (Windows' own unless you choose another) and the field of
-   view; Play starts the game, and the headset switches to it after a few seconds.
-
-For the controller to be placed by your hands, turn on hand tracking in the headset and let
-Virtual Desktop forward tracking data to the PC. The Touch controller layout, all settings and
-what to do when something does not work are in [README-PC-VR.md](README-PC-VR.md).
-
-## Common questions
-
-**How do I get the game onto my computer?** This project gives no information on how to get
-games, and this repository does not include any game data.
-
-**Which headsets?** On the headset alone: Quest 3 (the Quest 3S has the same chip and should
-work; nobody has reported it yet). A Quest 2 or Pro has not been tried and is slower. On a
-PC: any headset with an OpenXR runtime on Windows, which is every Quest through Virtual
-Desktop or Steam Link, and PC headsets through SteamVR (Index, PS VR2 with its PC adapter,
-Bigscreen Beyond, Pimax and others have been reported working).
-
-**Do I need a PlayStation controller?** No. The headset's own controllers play, on the
-headset alone and on the PC, and so do other gamepads; see "Playing". A DualSense is still
-the closest to what the game was made for.
-
-**Without Virtual Desktop?** On the PC, yes: with SteamVR as the OpenXR runtime
-([README-PC-VR.md](README-PC-VR.md#valve-index-through-steamvr)). Start SteamVR first, then
-`Play Astro Bot VR.bat`.
-
-**The picture looks like it is "reprojected", whatever I set.** The game draws one frame
-for every two refreshes of the headset, as it does on a PlayStation VR: 60 frames a second at
-120 Hz, 45 at 90 Hz, 36 at 72 Hz, and your head's turning is filled in between. Set the
-headset to 120 Hz for the console's own 60. On a fast PC, "Frames a second, at most" in the
-launcher's window can be raised to the headset's rate.
-
-**The game is in English.** From 0.19 on it takes the language of Windows or of the headset
-(one of the game's 28; English otherwise); the PC launcher's window has a list to choose
-another from.
-
-**The launcher keeps asking for the Visual C++ runtime although it is installed.** Fixed in
-0.19 (it looked in the wrong place when it was started from a 32-bit program), and its
-question now has a "start the game all the same".
-
-**Linux?** There is no Linux build of the PC version. A player reports it running through
-Steam's Proton with WiVRn; their recipe is in
-[README-PC-VR.md](README-PC-VR.md#linux-through-proton-as-reported).
-
-## Building from source
-
-Clone with the submodules:
+**1. Make a container you keep** (on Windows: in WSL, with the repository in WSL's own file
+system, for example `~/AstroQuest`, not under `/mnt/c`):
 
 ```sh
-git clone --recurse-submodules https://github.com/bigmak94/AstroQuest.git
+docker run -it --name astroquest-build --platform linux/arm64 \
+    -v ~/AstroQuest:/src/AstroQuest -w /src/AstroQuest \
+    registry.gitlab.steamos.cloud/steamrt/sniper/sdk/arm64:latest bash
+# later, to come back to it:
+docker start -ai astroquest-build
 ```
 
-Everything builds on Windows from Git Bash, without admin rights, with a portable toolchain
-kept in `tools/` (not in the repository): LLVM/clang 21 (`tools/llvm`), CMake 4.4
-(`tools/cmake`), Ninja (`tools/ninja`) and the MSVC CRT and Windows SDK fetched with
-[xwin](https://github.com/Jake-Shadle/xwin) (`tools/winsdk`).
+**2. Add a newer clang and CMake, once.** The SDK has clang 11, the build needs 17 or later
+(FEX); and openal-soft needs CMake 3.26 or later. Inside the container:
 
-- **PC build**: `source tools/env-win.sh && cmake --build build/win-x64 --target shadps4`, then
-  `bash tools/make-pc-vr.sh` puts it in `pc-vr/`.
-- **Quest app**: `bash tools/build-arm64.sh` cross-compiles the emulator for the headset
-  (Debian 13 arm64 sysroot made by `tools/mk-sysroot.mjs`, FEXCore built by the upstream
-  `shadps4-arm64-main/runtime/scripts/build-fexcore-smoke-aarch64.sh`), then
-  `bash quest-host/build.sh` builds the APK. That needs the Android SDK (build-tools 36.1,
-  platform 36), an NDK, a JDK, the
-  [Khronos OpenXR loader for Android 1.1.63](https://repo1.maven.org/maven2/org/khronos/openxr/openxr_loader_for_android/1.1.63/)
-  (the `.aar` unzipped into `tools/openxr`), and the
-  [Bachata S4 v0.2.4](https://github.com/JICA98/Bachata-S4/releases/tag/v0.2.4) release APK
-  (`bachatas4-0.2.4-release.apk`, SHA-256 `4077b0d0b80e354c71eff1ce2c003f122449ac266eb27a6ac26744d3f9809a08`)
-  in the top folder, whose Linux runtime (glibc, its libraries and the Turnip Vulkan driver)
-  the app carries.
-- `bash tools/make-release.sh <version>` packs the release files into `build/release/`. It
-  puts [PkgTool 0.2.231](https://github.com/maxton/LibOrbisPkg/releases/tag/v0.2), unzipped
-  into `tools/pkgtool`, in the PC package: the launcher unpacks a game package with it.
+```sh
+git config --global --add safe.directory '*'
+# clang 19 from apt.llvm.org (sniper is Debian 11 "bullseye" underneath)
+wget -qO /etc/apt/trusted.gpg.d/apt.llvm.org.asc https://apt.llvm.org/llvm-snapshot.gpg.key
+echo "deb http://apt.llvm.org/bullseye/ llvm-toolchain-bullseye-19 main" \
+    > /etc/apt/sources.list.d/llvm.list
+apt-get update && apt-get install -y clang-19 lld-19
+# CMake from Kitware's release
+mkdir -p /opt && cd /opt
+wget https://github.com/Kitware/CMake/releases/download/v3.31.6/cmake-3.31.6-linux-aarch64.tar.gz
+tar xf cmake-3.31.6-linux-aarch64.tar.gz
+ln -sf /opt/cmake-3.31.6-linux-aarch64/bin/* /usr/local/bin/
+cd /src/AstroQuest
+```
 
-How it all works, and the tools used to test it on the headset and with a simulated one, is
-described in [README-QUEST-VR.md](README-QUEST-VR.md) and [README-PC-VR.md](README-PC-VR.md).
+(If `apt-get update` fails on one of the SDK's own sources, comment that line out in
+`/etc/apt/sources.list` and try again.)
 
-## Support the project
+**3. Build:**
 
-If AstroQuest gave you a good time in VR and you want to help it go further, you can support
-its development here:
+```sh
+STEAM_FRAME_SDL_X11=0 steam-frame/build.sh
+```
 
-[![Support AstroQuest](https://img.shields.io/badge/Support-AstroQuest-635BFF?style=for-the-badge&logo=stripe&logoColor=white)](https://buy.stripe.com/6oU4gB5450PZ18h8aK1wY00)
+The script picks the newest `clang-NN` it finds (`STEAM_FRAME_CLANG=clang-19` names one) and
+takes the C++ library from the newest GCC in the SDK, linked into the program, so that it does
+not depend on the runtime's. `STEAM_FRAME_SDL_X11=0` builds SDL without X11 and Wayland: the
+headset needs no window. `STEAM_FRAME_CMAKE_ARGS` passes more to the emulator's configuration.
+At the end, `build/AstroQuest-SteamFrame/bin/needed-libraries.txt` lists the libraries the
+program needs from the system and `newest-glibc-symbol.txt` the newest C library function it
+uses (nothing newer than 2.31 may be in it).
 
-**https://buy.stripe.com/6oU4gB5450PZ18h8aK1wY00**
+**After a `git pull`**, only the emulator has to be built again (FEX only changes when the
+project pins another version of it):
 
-## License
+```sh
+steam-frame/build.sh core && steam-frame/build.sh package
+```
 
-AstroQuest is free software, licensed under the
-[GNU General Public License, version 2 or (at your option) any later version](LICENSE)
-(GPL-2.0-or-later), the license of shadPS4 it is built on.
+The individual steps are `steam-frame/build.sh fetch | fex | core | package`.
 
-The third-party components it uses or ships keep their own licenses: among them FEX (MIT),
-Mesa's Turnip Vulkan driver (MIT), the GNU C Library (LGPL-2.1-or-later), PkgTool (LGPL-3.0), the Khronos OpenXR
-SDK (Apache-2.0) and the libraries under `shadps4-arm64-main/externals`. See
-[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) for what the release files contain and where
-the source of each part is.
+### Cross-compiling (to check that it compiles)
 
-ASTRO BOT, PlayStation and PlayStation VR are trademarks of Sony Interactive Entertainment.
-This project is not affiliated with, endorsed or sponsored by Sony Interactive Entertainment,
-Team Asobi or Meta. It contains no game, firmware, keys or other copyrighted console files:
-use it only with software you own and have dumped yourself.
+On an x86-64 Linux machine with `clang lld g++-aarch64-linux-gnu libc6-dev-arm64-cross` (Debian,
+Ubuntu):
 
-## Thanks
+```sh
+STEAM_FRAME_CROSS=1 STEAM_FRAME_SDL_X11=0 steam-frame/build.sh
+```
 
-- **The [shadPS4](https://github.com/shadps4-emu/shadPS4) team and contributors.** None of
-  this would exist without their PlayStation 4 emulator: everything here is built on top of
-  their years of work. Thank you!
-- [zenithblue-oss/shadps4-arm64](https://github.com/zenithblue-oss/shadps4-arm64) and
-  [Bachata S4](https://github.com/JICA98/Bachata-S4), for the ARM64 build of shadPS4, its FEX
-  integration and the Linux runtime it runs in on Android.
-- [FEX-Emu](https://github.com/FEX-Emu/FEX), which runs the game's x86-64 code on the
-  headset's ARM processor.
-- [Mesa](https://www.mesa3d.org/) and its Turnip driver for Adreno GPUs (the build used here
-  comes from [Vauzi-17/mesa-tu8](https://github.com/Vauzi-17/mesa-tu8)).
-- [LibOrbisPkg](https://github.com/maxton/LibOrbisPkg), whose PkgTool unpacks game packages
-  for the PC launcher.
-- Everyone who reported what went wrong, and those who sent the fix along:
-  [ODevStudio](https://github.com/ODevStudio) for SteamVR and Valve Index support and the
-  desktop's spectator views, [Clodo76](https://github.com/Clodo76) for finding the game's
-  1.04 executable from inside, [evertec82](https://github.com/evertec82) for what stopped the
-  game under SteamVR.
-- [The Khronos Group](https://www.khronos.org/) for OpenXR and Vulkan,
-  [vgmstream](https://github.com/vgmstream/vgmstream) for documenting Sony's audio formats,
-  and [Virtual Desktop](https://www.vrdesktop.net/) for the PC streaming path.
+That builds against the cross packages' C library, which is newer than sniper's, and without
+the sound backends unless their arm64 development files are in the sysroot
+(`STEAM_FRAME_SYSROOT=<dir>`): fine to check that everything compiles, not what to put on the
+headset.
+
+## Installing
+
+1. **Put the game in the package** (the first upload then takes a while; later ones only send
+   what changed): copy `CUSA12392` (and `CUSA12392-UPDATE`, if you have it) into
+   `build/AstroQuest-SteamFrame/games/`.
+
+   Or leave it out of the package and copy it to the headset yourself, over the SSH access the
+   Devkit Client sets up, to `~/.local/share/AstroQuest/games/CUSA12392` (or `~/AstroQuest/games/`).
+2. In the Devkit Client: **Title Upload**
+   - Name: `AstroQuest`
+   - Local Folder: `build/AstroQuest-SteamFrame`
+   - Start Command: `astroquest.sh`
+   - Runtime: **Steam Linux Runtime 3.0 ARM64 (Sniper)**
+3. **Upload**, then **Start** - or start it on the headset from Library > Non-Steam >
+   "Devkit Game: AstroQuest".
+
+An upload replaces `settings.txt` in the uploaded folder with the one from the package: settings
+you want to keep are best given in the game's Steam launch options (see [Settings](#settings)).
+
+**Without the Devkit Client, or when the start fails with "permission denied":** a copy made
+through Windows (Explorer, WinSCP, the Windows Devkit Client reading a WSL folder) can lose the
+files' executable bit. `steam-frame/deploy.sh` copies the package over SSH from Linux or WSL
+with the bits kept, and sets them again:
+
+```sh
+steam-frame/deploy.sh steamos@<headset address> [folder, default Applications/AstroQuest]
+```
+
+It keeps a `settings.txt` of yours on the headset (the package's goes beside it as
+`settings.default.txt`) and deletes nothing. `STEAM_FRAME_SSH_KEY=<file>` names the key to log
+in with. Then add `astroquest.sh` in that folder as a Non-Steam game on the headset. Once the
+script runs, it gives the emulator its executable bit back itself, should it have lost it; for
+the script, `chmod +x astroquest.sh` over SSH is the way when it was copied some other way.
+
+If you play with a gamepad, pair it in the headset's Bluetooth settings. For a DualSense to
+reach the game with its touchpad and motion sensors, turn **Steam Input off** for the game
+(its controller settings in Steam): with Steam Input on, the game gets the virtual controller
+Steam makes of it.
+
+## Playing
+
+As on the Quest and the PC (see [README-ORIGINAL.md](README-ORIGINAL.md) for all of it):
+
+- **The Frame's controllers**: the right one is the controller in the game. Left stick to move;
+  A is ✕, B is □, X is ○, Y is △; the left menu button is OPTIONS. X and Y together blow.
+  Right trigger: the touchpad held (water cannon, guns); right grip: a swipe forward (hook,
+  stars, chests); left trigger: pull back and let go (the catapult); right stick: a finger on
+  the touchpad.
+- **A DualSense**: everything as on the console. The Frame tracks hands, so the gamepad is
+  where your hands are.
+- **Reset the view**: hold OPTIONS for a second, press the PS button, or press both sticks of
+  the Frame's controllers in.
+- **Turn without turning**: hold the left grip (L1 on a gamepad) and flick the right stick.
+- Taking the headset off pauses the game.
+
+## Settings
+
+`settings.txt` next to `astroquest.sh` (in the uploaded folder), one `key=value` a line; every
+key and its default are explained in the file. The most useful:
+
+| Setting | Meaning |
+| --- | --- |
+| `foveation=3` | foveated rendering: `1`-`3` shade the scene ever more coarsely away from where you look, so the GPU has time for a larger picture; `3` (the default) is the strongest, `0` turns it off. With it the scene stays at full size where it otherwise drops to 960x1080 |
+| `gaze_smoothing=1` | how steady the eye tracking is kept, in Hz: smaller is steadier, larger follows more closely, `0` takes the headset's readings as they come |
+| `eye_tracking=1` | with foveation on, the sharp middle follows your eyes (the Frame's eye tracking, through SteamVR); `0` keeps it in the middle of the picture |
+| `overlay=0` | `1`: a debug overlay in the headset (frame rate, frame time, display rate, scene size, GPU load, draws, foveation, gaze) |
+| `foveation_colors=0` | `1`: foveation's rings in colour over the picture (green: every pixel, yellow: 2x2, red: 4x4) and a mark where you look |
+| `resolution=` | the size of the scene per eye: `816`, `960`, `1200`, `1440`, larger widths, or `game`; empty: the emulator chooses, as large as the GPU manages (at most 1440x1536) |
+| `msaa=1` | the most samples a pixel gets: 1 (the default) is fastest, the emulator smooths edges itself; `4` lets the game multisample as on the console, for more GPU time |
+| `fov=85` | how much of the headset's field of view the game draws (50-100): less is sharper, with a soft border |
+| `sharpen=0.6` | sharpening, 0-1 |
+| `refresh_rate=90` | the display rate asked for, where the runtime lets a program choose. SteamVR on the Frame offers only 72 Hz to programs at the moment, which gives 36 frames a second |
+| `language=` | the game's language (`de-DE`, `fr-FR` ...); empty: the system's |
+| `window=1` | also open a window (for a Linux PC with a headset) |
+
+The same keys can be set without editing the file, in the game's Steam launch options, where
+they also survive a new upload: `ASTROQUEST_FOVEATION=2 ASTROQUEST_RESOLUTION=1200 %command%`.
+`./astroquest.sh --check` (from a shell) shows the game it found and everything it would hand to
+the emulator.
+
+### Foveated rendering
+
+Foveated rendering is on by default (`foveation=3`, following the eyes). The passes that draw
+the scene get a small map of how finely to shade:
+every pixel in the middle, one colour for every 2x2 or 4x4 pixels further out. Depth and the
+edges of things stay exact at every pixel, only the colour inside them is computed for fewer of
+them; the bloom, the picture handed to the headset and the shadow maps are not touched. With
+eye tracking the middle is where you look, moved once a frame; when the headset loses your eyes
+(a blink) for half a second, it goes back to the middle of the picture.
+
+| Level | Every pixel | 2x2 | 4x4 |
+| --- | --- | --- | --- |
+| `1` | out to half way to the edge | beyond | - |
+| `2` | out to 45% | out to 75% | beyond |
+| `3` | out to 35% | out to 60% | beyond |
+
+At 36 frames a second the sharp middle follows a quick glance a frame late: if that shows, a
+milder level hides it.
+
+The headset's readings of where you look tremble a little, as eyes do: they are smoothed while
+your gaze rests and followed at once when it jumps (`gaze_smoothing=1`, in Hz: smaller is
+steadier, `0` takes them as they come). Where the sharp middle sits a little beside where you
+look, `gaze_offset=<right>,<up>` moves it by that many degrees. (Each eye sees what you look at
+a little to one side of where the head's gaze points - more the closer it is - and the map is
+one for both eyes, so up close a degree or two of that is to be expected.)
+
+`foveation_colors=1` shows the rings over the picture: green where every pixel is shaded,
+yellow where one colour does for 2x2 pixels, red for 4x4, and a small white ring where the
+headset sees you look.
+
+| Looking through the arch | Looking to the right, at the coins |
+| --- | --- |
+| ![Foveated rendering with its rings in colour, the gaze in the middle of the picture](steam-frame/images/foveation-middle.jpg) | ![Foveated rendering with its rings in colour, the gaze moved to the right](steam-frame/images/foveation-gaze-right.jpg) |
+
+*From the headset, with `foveation_colors=1`: the white ring is where the Frame's eye tracking
+sees you look, and the rings follow it. Out in the red the 4x4 blocks show on the floor's fine
+pattern; where you look, the picture is shaded at every pixel.*
+
+### Debug overlay
+
+`overlay=1` puts a few lines of text a little above the middle of the picture
+(`overlay_position=0.5,0.38`: across and down, 0 to 1), at the same place in both eyes (so they
+look far away), updated twice a second:
+
+```
+36 fps  27.8 ms  72 Hz/2          frames a second, what a frame takes, display rate / refreshes a frame
+Scene 1440x1536  GPU 71%          the size the scene is drawn at, how busy the GPU was
+Eye 1440x1536  Draws 1874  MSAA 1 the eyes' pictures, draws in the last frame, multisampling
+Foveation 3  eyes 7R 3U           the foveation level, where you look (degrees right/left, up/down)
+```
+
+`SHADPS4_VR_OVERLAY_SCALE=1..4` makes the text smaller or larger (2 unless told). Both overlays
+are drawn over the frame that goes to the headset, after the emulator's own passes, and cost
+next to nothing.
+
+## Saves and logs
+
+Everything the emulator keeps is in `~/.local/share/AstroQuest/` on the headset (`data=` in the
+settings names another folder), outside the uploaded folder, so a new upload leaves it alone:
+
+- `user/home/1000/savedata/CUSA12392` - your saves;
+- `user/log/shad_log.txt` - the emulator's log: the OpenXR runtime and headset it found
+  (`Headset found through ...`), what the runtime offers, the frame rate and where its time goes
+  every few seconds, the size the scene is drawn at and how busy the GPU is, sound, microphone,
+  controllers. `console.txt` is what it printed. The `.prev` files are the run before.
+
+What to look for:
+
+| In the log | Meaning |
+| --- | --- |
+| `No OpenXR runtime that could show frames in a headset` | the OpenXR loader found no runtime in the Steam Linux Runtime's container: the game is shown nowhere. Check `XR_RUNTIME_JSON` (`astroquest.sh --check` prints it) |
+| `has no headset connected yet` | the runtime answered but had no headset; it is picked up when there is one |
+| `Mapping cannot fit inside free region` | the console's address space did not fit next to what is loaded in the process |
+| `vkCreateInstance` / `No suitable GPU` errors | the Vulkan driver was not reachable in the container |
+| `The scene is drawn at ... instead of ...` | the emulator changed the scene's size, and why (how long frames took, how busy the GPU was) |
+| `Foveation: passes of ... shade every pixel in ...%` | foveated rendering is on, and how much of the picture is shaded how finely |
+| `Foveation asked for, but ...` | the GPU or driver cannot do it: it stays off |
+| `The headset can tell where the eyes look` / `tells where the eyes look: now ...` | eye tracking is offered / its first reading arrived; without the second line the middle stays put |
+
+### Looking into the picture
+
+For finding what the GPU draws wrong, two aids that do nothing until asked:
+
+- `touch ~/.local/share/AstroQuest/user/dump_render_targets`: a picture of every render target
+  the game has drawn so far, in `user/rt_dump/`, and the next 3000 draws in the log.
+- `touch ~/.local/share/AstroQuest/user/dump_draws`: for the next frame, a picture of the render
+  target (and of the depth, where a draw writes it) after every single draw, fast clear and
+  resolve, in `user/draw_dump/`, named by their order, target, shaders and depth state, with a
+  `DRAWDUMP` line in the log for each. The game stands still meanwhile (a few seconds to a
+  minute). `SHADPS4_DBG_DRAW_DUMP_CB=<addresses>`, `_MIN_WIDTH`, `_WIDTH`, `_DEPTH=0`,
+  `_FRAMES`, `_MAX` narrow it down.
+
+Both are looked for every 120 frames. `SHADPS4_DBG_SYNC=1` puts a full memory barrier after
+every draw (slow): a picture that is right with it and wrong without is missing a barrier
+somewhere. `SHADPS4_DBG_SKIP_PS=<shader hashes>` leaves out the draws of those pixel shaders.
+
+## What was changed
+
+The Quest and PC builds are not changed by any of this: what is different on the Frame is
+either compiled only into its build (`ENABLE_STEAM_FRAME`), or only switched on by a setting its
+launcher sets (foveation, eye tracking, the display rate), and the debugging aids do nothing
+until asked. Where the Frame shares something with the Quest build, the condition for the
+Quest is the same as before.
+
+**Building**
+
+- `CMakeLists.txt`: the option `ENABLE_STEAM_FRAME`, which also links the C++ library into the
+  program; `ENABLE_OPENXR` can now be built on Linux (on by default for Windows, as before, and
+  for the Frame); `SHADPS4_MOBILE_GPU` stands for what the Quest build and the Frame build share
+  (memory budget, staging buffer size, cache thresholds, VMA block size, draws sent to the GPU
+  in parts).
+- `externals/CMakeLists.txt`, `externals/openxr-sdk/src/cmake/presentation.cmake`: the OpenXR
+  loader with its own jsoncpp on the Frame, and without X11 when only the loader is built and
+  there is no X11.
+- Older C library (glibc 2.31): `epoll_pwait2` through the system call where the C library does
+  not name it (`net.cpp`), `SYS_faccessat2` named where the headers do not (`main.cpp`), and a
+  missing `MREMAP_DONTUNMAP` for FEX (`steam-frame/fex-old-glibc.patch`).
+- `steam-frame/`: `build.sh`, `toolchain-aarch64-cross.cmake`, `fex-old-glibc.patch`,
+  `astroquest.sh` (the launcher), `settings.txt`.
+
+**Running**
+
+- `src/core/vr/openxr_host.cpp`: builds on Linux (the Windows sound-device lookup is Windows
+  only; Linux runtimes get the file-descriptor and dma-buf Vulkan extensions); the headset's
+  sound is the system's default, or `SHADPS4_XR_AUDIO_OUTPUT` / `SHADPS4_XR_AUDIO_INPUT`;
+  `SHADPS4_XR_REFRESH_RATE` asks for a display rate through `XR_FB_display_refresh_rate`; the
+  extensions the runtime offers are logged; with foveation, the gaze of
+  `XR_EXT_eye_gaze_interaction` goes to the renderer (`src/core/vr/eye_gaze.h`), next to the
+  title's field of view (`vr_runtime.cpp`).
+- `src/core/address_space.cpp`: the Frame lays the console's address space out the way the
+  Quest build does (at the console's own addresses, below and around whatever the process has
+  mapped already: FEX does not offset addresses, and SteamVR's libraries are in the process).
+- `vk_presenter.cpp`: without a window (as on the Frame) the window's look at the eyes' pictures
+  is no longer drawn and presented every frame for nobody (`SHADPS4_VR_WINDOW_FRAME=1` keeps
+  it); the picture dumps.
+
+**Drawing**
+
+- `vk_scheduler.cpp`: a barrier before every render pass, for what the passes before it drew
+  (`SHADPS4_PASS_BARRIER`, on in the Frame build). The texture cache leaves one out where an
+  image stays a target from one pass to the next, and the order of pixels only holds within a
+  pass; with the driver drawing straight into memory (`TU_DEBUG=sysmem`, used without
+  multisampling) passes overlapped, and the right eye's picture had black squares in a grid
+  along the edges of things. (Multisampling hid that only because the driver then draws in
+  tiles, a pass at a time.)
+- `vk_instance.cpp`, `vk_graphics_pipeline.cpp`, `vk_rasterizer.cpp`, `vk_scheduler.cpp`:
+  foveated rendering (`SHADPS4_FOVEATION=1..3`) through `VK_KHR_fragment_shading_rate` with a
+  shading rate image: the passes that draw the scene (a colour and a depth target of 512 pixels
+  or more, not wider than an eye's picture) get a map of 8x8-pixel texels, moved with the gaze
+  (`SHADPS4_FOVEATION_EYES=0`: it stays put; `_INNER`, `_OUTER` move the rings). Pixel shaders
+  that write depth keep to every pixel where the GPU cannot shade those coarser (the Frame's
+  can).
+- `vk_pipeline_cache.cpp`: the barriers in compute shaders' workgroup memory are decided in one
+  place (`SHADPS4_LDS_BARRIERS=0/1` for any driver); Turnip does not need them (an Adreno runs
+  64 threads in step, as GCN does).
+- `vk_rasterizer.cpp`, `vk_presenter.cpp`: the draw dump and `SHADPS4_DBG_SYNC` (see
+  [Looking into the picture](#looking-into-the-picture)).
+- `host_passes/vr_overlay_pass.cpp`, `vk_presenter.cpp`, `known_title.cpp`: the headset's debug
+  overlay (`SHADPS4_VR_OVERLAY`) and foveation's rings in colour (`SHADPS4_FOVEATION_SHOW`),
+  drawn over the headset's frame with a built-in 8x16 font (made from DejaVu Sans Mono Bold);
+  the title's frame time, scene size and GPU load are kept for it (`KnownTitle::GetStatus`).
+- `src/video_core/...`: the mobile-GPU settings above, the pipeline cache warm-up skipped as
+  under FEX on the Quest, and in `vk_platform.cpp` the OpenXR header included after the
+  emulator's own (on Linux the Vulkan headers bring Xlib, whose `None` macro clashed).
+
+The Quest app (`quest-host/`) is not used: it is an Android app (Java, OpenGL ES,
+AHardwareBuffer, an Android sandbox for the emulator), none of which there is on SteamOS.
+
+## Open questions
+
+- **A higher display rate.** SteamVR on the Frame (2.18.2) offers programs only 72 Hz, so the
+  game runs at 36 frames a second. At 90 or 120 Hz it could have 45 or 40; whether the game
+  keeps that is another question: under FEX it would run at about 60% of its speed if left to
+  itself, so the processor, not the GPU, is what limits the frame rate.
+- **The Frame's own controller profile.** The runtime offers
+  `XR_VALVE_frame_controller_interaction`; the emulator binds the Touch and Index profiles,
+  which the Frame's controllers answer to. Binding the Frame's own would give its extra
+  buttons a use.
+- **A larger picture.** With foveation the GPU is busy about 60-80% of the time at 1440x1536;
+  the emulator does not choose more than that by itself (`resolution=1600` and up asks for it).

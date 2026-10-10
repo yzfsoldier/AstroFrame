@@ -123,7 +123,7 @@
 # Seconds to wait for a headset before the game starts without one. 0: do not wait.
 #wait=60
 
-# Where the game is, if it is not in one of the games folders (see README-STEAM-FRAME.md): its
+# Where the game is, if it is not in one of the games folders (see README.md): its
 # eboot.bin or its folder.
 #game=/home/steamuser/AstroQuest/games/CUSA12392/eboot.bin
 

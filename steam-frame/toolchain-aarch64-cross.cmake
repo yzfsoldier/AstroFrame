@@ -7,7 +7,7 @@
 # What is built this way links against the C library of that sysroot: for a build that runs in
 # the Steam Linux Runtime 3.0 (sniper) on the headset, the sysroot has to be sniper's (glibc
 # 2.31) or older. Ubuntu's cross packages are newer; they serve to check that it builds, and
-# for running outside the runtime on the headset's own SteamOS. See README-STEAM-FRAME.md.
+# for running outside the runtime on the headset's own SteamOS. See README.md.
 set(CMAKE_SYSTEM_NAME Linux)
 set(CMAKE_SYSTEM_PROCESSOR aarch64)
 
