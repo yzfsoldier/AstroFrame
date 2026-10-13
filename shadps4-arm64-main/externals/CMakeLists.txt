@@ -102,11 +102,8 @@ if (ENABLE_OPENXR AND NOT TARGET OpenXR::openxr_loader)
     set(BUILD_CONFORMANCE_TESTS OFF)
     set(BUILD_SDK_TESTS OFF)
     set(DYNAMIC_LOADER OFF)
-    # The loader's own copy of jsoncpp: a system one would be one more library for the Steam
-    # Linux Runtime to have.
-    if (ENABLE_STEAM_FRAME)
-        set(BUILD_WITH_SYSTEM_JSONCPP OFF CACHE BOOL "" FORCE)
-    endif()
+    # A system jsoncpp cannot be exported with the static loader.
+    set(BUILD_WITH_SYSTEM_JSONCPP OFF)
     add_subdirectory(openxr-sdk)
 endif()
 

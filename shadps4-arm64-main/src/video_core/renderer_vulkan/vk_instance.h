@@ -3,6 +3,8 @@
 
 #pragma once
 
+#include <algorithm>
+
 #include <span>
 #include <unordered_map>
 
@@ -128,14 +130,14 @@ public:
     }
     /// The size of the pixel blocks one texel of a shading rate image stands for.
     vk::Extent2D GetShadingRateTexelSize() const {
-        return shading_rate_texel_size;
+        return vk::Extent2D{foveation_texel, foveation_texel};
     }
     /// Whether a rate of 4x4 / 2x2 pixels a fragment can be had.
     bool HasShadingRate4x4() const {
-        return shading_rate_4x4;
+        return IsFoveationRateSupported(4, 4);
     }
     bool HasShadingRate2x2() const {
-        return shading_rate_2x2;
+        return IsFoveationRateSupported(2, 2);
     }
     /// Whether a coarse rate may be used with shaders that write depth/stencil or a sample mask.
     bool ShadingRateWithDepthWrites() const {
@@ -147,6 +149,24 @@ public:
 
     bool IsAttachmentFeedbackLoopLayoutSupported() const {
         return attachment_feedback_loop;
+    }
+
+    /// True where foveation was asked for (Foveation::Level) and the GPU can shade render
+    /// passes as coarsely as a map of rates says (VK_KHR_fragment_shading_rate).
+    bool IsFoveationSupported() const {
+        return foveation;
+    }
+
+    /// The pixels a texel of a shading rate map covers on each side.
+    u32 FoveationTexel() const {
+        return foveation_texel;
+    }
+
+    /// Whether blocks of that many pixels can be shaded as one (with one sample a pixel).
+    bool IsFoveationRateSupported(u32 width, u32 height) const {
+        return std::ranges::any_of(foveation_rates, [&](const vk::Extent2D& rate) {
+            return rate.width == width && rate.height == height;
+        });
     }
 
     /// Returns true when VK_EXT_custom_border_color is supported
@@ -586,10 +606,11 @@ private:
     bool workgroup_memory_explicit_layout{};
     bool maintenance_8{};
     bool attachment_feedback_loop{};
+    bool foveation{};
+    u32 foveation_texel{};
+    std::vector<vk::Extent2D> foveation_rates;
+    /// The Steam Frame's foveation, which follows the eyes (SHADPS4_FOVEATION).
     bool shading_rate_attachment{};
-    vk::Extent2D shading_rate_texel_size{};
-    bool shading_rate_4x4{};
-    bool shading_rate_2x2{};
     bool shading_rate_with_depth_writes{};
     bool shading_rate_with_sample_mask{};
     bool image_2d_view_of_3d{};

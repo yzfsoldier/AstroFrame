@@ -353,16 +353,18 @@ GraphicsPipeline::GraphicsPipeline(
     // In practice, we use dynamic state for all of it.
     constexpr vk::PipelineDepthStencilStateCreateInfo depth_stencil_info = {};
 
-    // Foveated rendering: the rate the pass's shading rate image gives replaces the pipeline's
-    // (1x1). Not for shaders that write depth, stencil or a sample mask where the GPU cannot
-    // shade those coarser: they keep to every pixel.
+    // Foveated rendering (either kind, see Instance::IsFoveationSupported): where a render pass
+    // has a map of how coarsely to shade, the rate it gives replaces the pipeline's own (every
+    // pixel); without a map it is every pixel too. Any pipeline may be used in such a pass, so
+    // all are made for it. Not for shaders that write depth, stencil or a sample mask where the
+    // GPU cannot shade those coarser: they keep to every pixel.
     vk::PipelineFragmentShadingRateStateCreateInfoKHR shading_rate_state{
         .pNext = &pipeline_rendering_ci,
         .fragmentSize = vk::Extent2D{1, 1},
         .combinerOps = std::array{vk::FragmentShadingRateCombinerOpKHR::eKeep,
                                   vk::FragmentShadingRateCombinerOpKHR::eReplace},
     };
-    const bool shading_rate = instance.IsShadingRateAttachmentEnabled();
+    const bool shading_rate = instance.IsFoveationSupported();
     if (shading_rate) {
         const auto* fs = stages[static_cast<u32>(Shader::LogicalStage::Fragment)];
         const bool writes_depth =

@@ -331,6 +331,16 @@ launcher sets (foveation, eye tracking, the display rate), and the debugging aid
 until asked. Where the Frame shares something with the Quest build, the condition for the
 Quest is the same as before.
 
+**From the original project** (its 0.21 and 0.21.1, merged): less work for every draw (pipelines
+and textures found again by shortcuts, draws that write nothing left out), the barrier before a
+pass that clears a target (the Quest's black squares, issue #19, which the Frame's barrier
+between all passes covers), the texture cache letting go of an image only once (a crash at the
+last boss), its own native Linux build of the OpenXR host, and the Quest's options (lighter
+models further away `SHADPS4_TITLE_LOD`, the game's picture enlarged with FSR 1, a steady frame
+rate `SHADPS4_VR_STEADY_FPS`, foveation without eye tracking `SHADPS4_VR_FOVEATION`), which are
+off on the Frame unless set. Where both foveations are asked for, the Frame's, which follows
+the eyes, is the one used; the pipelines are made for either.
+
 **Building**
 
 - `CMakeLists.txt`: the option `ENABLE_STEAM_FRAME`, which also links the C++ library into the
@@ -382,9 +392,6 @@ Quest is the same as before.
 - `vk_pipeline_cache.cpp`: the barriers in compute shaders' workgroup memory are decided in one
   place (`SHADPS4_LDS_BARRIERS=0/1` for any driver); Turnip does not need them (an Adreno runs
   64 threads in step, as GCN does).
-- `texture_cache.cpp` (from the original project, its 0.21.1): the texture cache lets go of an
-  image only once. It could let go of the same image twice when memory ran short ("Trying to
-  unregister an already unregistered image", a crash seen at the last boss on the Quest).
 - `vk_rasterizer.cpp`, `vk_presenter.cpp`: the draw dump and `SHADPS4_DBG_SYNC` (see
   [Looking into the picture](#looking-into-the-picture)).
 - `host_passes/vr_overlay_pass.cpp`, `vk_presenter.cpp`, `known_title.cpp`: the headset's debug

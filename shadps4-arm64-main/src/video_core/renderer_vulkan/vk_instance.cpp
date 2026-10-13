@@ -21,6 +21,7 @@
 #include "sdl_window.h"
 #include "video_core/renderer_vulkan/legacy_vertex_attributes.h"
 #include "video_core/renderer_vulkan/liverpool_to_vk.h"
+#include "video_core/renderer_vulkan/vk_foveation.h"
 #include "video_core/renderer_vulkan/vk_instance.h"
 #include "video_core/renderer_vulkan/vk_platform.h"
 
@@ -300,73 +301,6 @@ bool Instance::CreateDevice() {
     vertex_attribute_divisor = add_extension(VK_EXT_VERTEX_ATTRIBUTE_DIVISOR_EXTENSION_NAME);
 
     // Optional
-    // Foveated rendering (SHADPS4_FOVEATION): coarser shading where a small image says so.
-    // Asked for only then, as the extension changes what pipelines are made with.
-    vk::PhysicalDeviceFragmentShadingRateFeaturesKHR shading_rate_features{};
-    if (const char* foveation = std::getenv("SHADPS4_FOVEATION");
-        foveation != nullptr && foveation[0] != 0 && foveation[0] != '0') {
-        const bool offered = std::ranges::any_of(available_extensions, [](const std::string& name) {
-            return name == VK_KHR_FRAGMENT_SHADING_RATE_EXTENSION_NAME;
-        });
-        if (offered) {
-            const auto chain = physical_device.getFeatures2<
-                vk::PhysicalDeviceFeatures2, vk::PhysicalDeviceFragmentShadingRateFeaturesKHR>();
-            const auto& offered_features =
-                chain.get<vk::PhysicalDeviceFragmentShadingRateFeaturesKHR>();
-            const auto props_chain = physical_device.getProperties2<
-                vk::PhysicalDeviceProperties2,
-                vk::PhysicalDeviceFragmentShadingRatePropertiesKHR>();
-            const auto& rate_props =
-                props_chain.get<vk::PhysicalDeviceFragmentShadingRatePropertiesKHR>();
-            const auto [rates_result, rates] = physical_device.getFragmentShadingRatesKHR();
-            std::string rate_names;
-            if (rates_result == vk::Result::eSuccess) {
-                for (const auto& rate : rates) {
-                    rate_names += fmt::format("{}{}x{}", rate_names.empty() ? "" : " ",
-                                              rate.fragmentSize.width, rate.fragmentSize.height);
-                    shading_rate_4x4 |=
-                        rate.fragmentSize.width == 4 && rate.fragmentSize.height == 4;
-                    shading_rate_2x2 |=
-                        rate.fragmentSize.width == 2 && rate.fragmentSize.height == 2;
-                }
-            }
-            const auto& min_texel = rate_props.minFragmentShadingRateAttachmentTexelSize;
-            const auto& max_texel = rate_props.maxFragmentShadingRateAttachmentTexelSize;
-            LOG_INFO(Render_Vulkan,
-                     "Foveation: shading rate by pipeline {}, by primitive {}, by attachment {} "
-                     "(texels of {}x{} to {}x{} pixels); rates {}; with depth writes {}, with "
-                     "sample mask {}",
-                     static_cast<bool>(offered_features.pipelineFragmentShadingRate),
-                     static_cast<bool>(offered_features.primitiveFragmentShadingRate),
-                     static_cast<bool>(offered_features.attachmentFragmentShadingRate),
-                     min_texel.width, min_texel.height, max_texel.width, max_texel.height,
-                     rate_names,
-                     static_cast<bool>(
-                         rate_props.fragmentShadingRateWithShaderDepthStencilWrites),
-                     static_cast<bool>(rate_props.fragmentShadingRateWithSampleMask));
-            if (offered_features.pipelineFragmentShadingRate &&
-                offered_features.attachmentFragmentShadingRate && shading_rate_2x2 &&
-                add_extension(VK_KHR_FRAGMENT_SHADING_RATE_EXTENSION_NAME)) {
-                shading_rate_attachment = true;
-                // Blocks of 16x16 pixels where the driver allows them: fine enough for rings
-                // around the middle of the picture, and few texels to make.
-                const u32 texel = std::clamp(16u, std::max(min_texel.width, min_texel.height),
-                                             std::min(max_texel.width, max_texel.height));
-                shading_rate_texel_size = vk::Extent2D{texel, texel};
-                shading_rate_with_depth_writes =
-                    rate_props.fragmentShadingRateWithShaderDepthStencilWrites;
-                shading_rate_with_sample_mask = rate_props.fragmentShadingRateWithSampleMask;
-                shading_rate_features.pipelineFragmentShadingRate = true;
-                shading_rate_features.attachmentFragmentShadingRate = true;
-            } else {
-                LOG_WARNING(Render_Vulkan, "Foveation asked for, but the GPU cannot shade "
-                                           "coarser where an image says so: it stays off");
-            }
-        } else {
-            LOG_WARNING(Render_Vulkan, "Foveation asked for, but the GPU has no "
-                                       "VK_KHR_fragment_shading_rate: it stays off");
-        }
-    }
     maintenance_8 = add_extension(VK_KHR_MAINTENANCE_8_EXTENSION_NAME);
     attachment_feedback_loop = add_extension(VK_EXT_ATTACHMENT_FEEDBACK_LOOP_LAYOUT_EXTENSION_NAME);
     if (attachment_feedback_loop) {
@@ -467,6 +401,77 @@ bool Instance::CreateDevice() {
                  image_2d_view_of_3d_features.image2DViewOf3D);
         LOG_INFO(Render_Vulkan, "- sampler2DViewOf3D: {}",
                  image_2d_view_of_3d_features.sampler2DViewOf3D);
+    }
+    // Coarser shading towards the edges of a headset's pictures, where asked for: the original
+    // project's (Foveation, SHADPS4_VR_FOVEATION, the Quest's), or the Steam Frame's, which
+    // follows the eyes (SHADPS4_FOVEATION, Rasterizer::FoveationMap). A map of how coarsely to
+    // shade each part, given to the render passes that draw them.
+    const bool eye_foveation_wanted = [] {
+        const char* value = std::getenv("SHADPS4_FOVEATION");
+        return value != nullptr && value[0] != 0 && value[0] != '0';
+    }();
+    if ((Foveation::Level() > 0 || eye_foveation_wanted) &&
+        add_extension(VK_KHR_FRAGMENT_SHADING_RATE_EXTENSION_NAME)) {
+        const auto rate_features =
+            physical_device
+                .getFeatures2<vk::PhysicalDeviceFeatures2,
+                              vk::PhysicalDeviceFragmentShadingRateFeaturesKHR>()
+                .get<vk::PhysicalDeviceFragmentShadingRateFeaturesKHR>();
+        const auto rate_properties =
+            physical_device
+                .getProperties2<vk::PhysicalDeviceProperties2,
+                                vk::PhysicalDeviceFragmentShadingRatePropertiesKHR>()
+                .get<vk::PhysicalDeviceFragmentShadingRatePropertiesKHR>();
+        const auto smallest = rate_properties.minFragmentShadingRateAttachmentTexelSize;
+        const auto largest = rate_properties.maxFragmentShadingRateAttachmentTexelSize;
+        const u32 texel_low = std::max(smallest.width, smallest.height);
+        const u32 texel_high = std::min(largest.width, largest.height);
+        foveation = rate_features.attachmentFragmentShadingRate &&
+                    rate_features.pipelineFragmentShadingRate && texel_low != 0 &&
+                    texel_low <= texel_high;
+        if (foveation) {
+            foveation_texel = std::clamp(Foveation::WantedTexel, texel_low, texel_high);
+            // 1x1, 1x2, 2x1 and 2x2 come with the feature; what else, the GPU says.
+            foveation_rates = {{1, 1}, {1, 2}, {2, 1}, {2, 2}};
+            if (VULKAN_HPP_DEFAULT_DISPATCHER.vkGetPhysicalDeviceFragmentShadingRatesKHR) {
+                const auto [rates_result, rates] = physical_device.getFragmentShadingRatesKHR();
+                if (rates_result == vk::Result::eSuccess) {
+                    foveation_rates.clear();
+                    for (const auto& rate : rates) {
+                        if (rate.sampleCounts & vk::SampleCountFlagBits::e1) {
+                            foveation_rates.push_back(rate.fragmentSize);
+                        }
+                    }
+                }
+            }
+            LOG_INFO(Render_Vulkan, "Foveation possible: shading rate maps of {}x{} pixels a texel",
+                     foveation_texel, foveation_texel);
+            std::string rate_names;
+            for (const auto& rate : foveation_rates) {
+                rate_names += fmt::format("{}{}x{}", rate_names.empty() ? "" : " ", rate.width,
+                                          rate.height);
+            }
+            LOG_INFO(Render_Vulkan,
+                     "Foveation: shading rate by primitive {}; rates {}; with depth writes {}, "
+                     "with sample mask {}",
+                     static_cast<bool>(rate_features.primitiveFragmentShadingRate), rate_names,
+                     static_cast<bool>(
+                         rate_properties.fragmentShadingRateWithShaderDepthStencilWrites),
+                     static_cast<bool>(rate_properties.fragmentShadingRateWithSampleMask));
+            // The Steam Frame's, which follows the eyes.
+            shading_rate_attachment = eye_foveation_wanted;
+            shading_rate_with_depth_writes =
+                rate_properties.fragmentShadingRateWithShaderDepthStencilWrites;
+            shading_rate_with_sample_mask = rate_properties.fragmentShadingRateWithSampleMask;
+        } else {
+            LOG_WARNING(Render_Vulkan,
+                        "Foveation not possible: shading rates by attachment {}, by pipeline {}, "
+                        "map texels {}x{} to {}x{}",
+                        static_cast<bool>(rate_features.attachmentFragmentShadingRate),
+                        static_cast<bool>(rate_features.pipelineFragmentShadingRate),
+                        smallest.width, smallest.height, largest.width, largest.height);
+            enabled_extensions.pop_back();
+        }
     }
     supports_memory_budget = add_extension(VK_EXT_MEMORY_BUDGET_EXTENSION_NAME);
     external_memory_dma_buf = add_extension(VK_KHR_EXTERNAL_MEMORY_FD_EXTENSION_NAME) &&
@@ -647,7 +652,11 @@ bool Instance::CreateDevice() {
             .image2DViewOf3D = image_2d_view_of_3d_features.image2DViewOf3D,
             .sampler2DViewOf3D = image_2d_view_of_3d_features.sampler2DViewOf3D,
         },
-        shading_rate_features,
+        vk::PhysicalDeviceFragmentShadingRateFeaturesKHR{
+            .pipelineFragmentShadingRate = true,
+            .primitiveFragmentShadingRate = false,
+            .attachmentFragmentShadingRate = true,
+        },
     };
 
     if (!custom_border_color) {
@@ -699,7 +708,7 @@ bool Instance::CreateDevice() {
     if (!image_2d_view_of_3d) {
         device_chain.unlink<vk::PhysicalDeviceImage2DViewOf3DFeaturesEXT>();
     }
-    if (!shading_rate_attachment) {
+    if (!foveation) {
         device_chain.unlink<vk::PhysicalDeviceFragmentShadingRateFeaturesKHR>();
     }
 

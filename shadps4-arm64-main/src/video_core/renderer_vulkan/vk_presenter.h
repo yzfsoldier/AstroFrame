@@ -138,7 +138,7 @@ private:
     Frame* GetRenderFrame();
 
     /// Writes a thumbnail of every image the guest GPU rendered into to <UserDir>/rt_dump.
-    void DumpGpuImages();
+    void DumpGpuImages(std::string_view folder = "rt_dump");
 
     /// Writes a picture of `image` (a colour target), at most `max_width` wide, to `path`.
     bool DumpImageThumbnail(VideoCore::Image& image, const std::filesystem::path& path,
