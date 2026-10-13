@@ -382,6 +382,9 @@ Quest is the same as before.
 - `vk_pipeline_cache.cpp`: the barriers in compute shaders' workgroup memory are decided in one
   place (`SHADPS4_LDS_BARRIERS=0/1` for any driver); Turnip does not need them (an Adreno runs
   64 threads in step, as GCN does).
+- `texture_cache.cpp` (from the original project, its 0.21.1): the texture cache lets go of an
+  image only once. It could let go of the same image twice when memory ran short ("Trying to
+  unregister an already unregistered image", a crash seen at the last boss on the Quest).
 - `vk_rasterizer.cpp`, `vk_presenter.cpp`: the draw dump and `SHADPS4_DBG_SYNC` (see
   [Looking into the picture](#looking-into-the-picture)).
 - `host_passes/vr_overlay_pass.cpp`, `vk_presenter.cpp`, `known_title.cpp`: the headset's debug
