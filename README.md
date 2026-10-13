@@ -210,6 +210,8 @@ key and its default are explained in the file. The most useful:
 | Setting | Meaning |
 | --- | --- |
 | `foveation=3` | foveated rendering: `1`-`3` shade the scene ever more coarsely away from where you look, so the GPU has time for a larger picture; `3` (the default) is the strongest, `0` turns it off. With it the scene stays at full size where it otherwise drops to 960x1080 |
+| `detail=console` | `lighter`: simpler models further away and smaller sun shadow maps (the Quest's "Detail further away"), for more GPU time to spare; `console` (the default) as the game has it |
+| `fsr=0` | `1` or `2`: FSR 1 enlarges the game's scene to the eye's picture where it is drawn smaller than that (crisper edges than the game's bilinear); it only works while the scene is below 1440x1536, as when the GPU has too much to do or with `resolution=1200` |
 | `gaze_smoothing=1` | how steady the eye tracking is kept, in Hz: smaller is steadier, larger follows more closely, `0` takes the headset's readings as they come |
 | `eye_tracking=1` | with foveation on, the sharp middle follows your eyes (the Frame's eye tracking, through SteamVR); `0` keeps it in the middle of the picture |
 | `overlay=0` | `1`: a debug overlay in the headset (frame rate, frame time, display rate, scene size, GPU load, draws, foveation, gaze) |

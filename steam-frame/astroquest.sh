@@ -161,6 +161,17 @@ else
     export SHADPS4_FOVEATION_EYES=1
 fi
 export SHADPS4_GAZE_SMOOTHING=$(setting gaze_smoothing 1)
+# Simpler models further away and smaller sun shadow maps, as the Quest's "Detail further away:
+# Lighter" (off by default).
+case "$(setting detail console)" in
+    lighter) export SHADPS4_TITLE_LOD=$(setting lod 0.333) SHADPS4_TITLE_SHADOW_MAP=1024 ;;
+    console) ;;
+    *) say "detail=$(setting detail) is not one of console, lighter" ;;
+esac
+# The game's scene enlarged to the eye's picture with FSR 1 instead of bilinearly, where it is
+# drawn smaller than that (off by default).
+fsr=$(setting fsr 0)
+[[ "$fsr" != 0 ]] && export SHADPS4_TITLE_FSR=$fsr
 gaze_offset=$(setting gaze_offset)
 [[ -n "$gaze_offset" ]] && export SHADPS4_GAZE_OFFSET=$gaze_offset
 [[ "$(setting overlay 0)" == 1 ]] && export SHADPS4_VR_OVERLAY=1

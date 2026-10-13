@@ -10,6 +10,7 @@
 #include "core/known_title.h"
 #include "video_core/renderer_vulkan/vk_foveation.h"
 #include "video_core/renderer_vulkan/vk_instance.h"
+#include "video_core/renderer_vulkan/vk_rasterizer.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
 #include "video_core/renderer_vulkan/vk_title_upscale.h"
 
@@ -45,7 +46,13 @@ int Mode() {
 
 float FineRadius(const Instance& instance) {
     // Whole texels of the shading rate map are coarse where their middle is beyond the radius,
-    // and EASU reads two scene texels around a pixel: it stops a little before.
+    // and EASU reads two scene texels around a pixel: it stops a little before. (The Steam
+    // Frame's foveation moves its fine middle with the eyes, where the radius here, compiled
+    // into the shader, stays round the middle of the picture: there it is that foveation's
+    // inner ring, so that looking straight ahead EASU keeps to what is shaded finely.)
+    if (instance.IsShadingRateAttachmentEnabled()) {
+        return std::max(Rasterizer::EyeFoveationInner() - 0.03f, 0.0f);
+    }
     return Foveation::Level() > 0 && instance.IsFoveationSupported()
                ? std::max(Foveation::CoarseFrom() - 0.03f, 0.0f)
                : 2.0f;

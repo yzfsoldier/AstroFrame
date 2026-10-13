@@ -51,6 +51,22 @@
 # gaze_offset=2,-1
 #gaze_offset=0,0
 
+# Simpler models further away: lighter: the game's models change to their simpler forms at a
+# third of the distances the game has for that, and the sun's shadows are drawn into maps of
+# 1024x1024 instead of 2048x2048 (softer shadow edges). On the Quest that took a sixth off the
+# GPU's time for a frame in a busy level, and side by side the pictures were hard to tell apart.
+# console (the default): as the game has it. lod= sets the share of the distances for lighter.
+#detail=console
+#lod=0.333
+
+# FSR 1 for enlarging the game's scene to the eye's picture where it is drawn smaller than that
+# (the scene's size goes down where the GPU has too much to do, and with resolution= below 1440):
+# edges come out crisper than the game's own bilinear enlarging. 0 (the default): off; 1: where
+# it is enlarged by 1.3 or more (816 and 960 wide); 2: wherever it is enlarged. With foveation
+# it works round the middle of the picture, within the finely shaded ring of looking straight
+# ahead.
+#fsr=0
+
 # 1: a debug overlay in the headset: frame rate, what frames take, the display's rate and the
 # refreshes a frame is given, the size the scene is drawn at, how busy the GPU is, draws a
 # frame, multisampling, foveation and where the eyes look (updated twice a second).

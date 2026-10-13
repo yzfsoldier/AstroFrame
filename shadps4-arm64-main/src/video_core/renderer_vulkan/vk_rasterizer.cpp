@@ -387,6 +387,10 @@ void Rasterizer::ArmDrawDump() {
     draw_dump_state = DrawDumpState::Armed;
 }
 
+float Rasterizer::EyeFoveationInner() {
+    return GetFoveationRings().inner;
+}
+
 Rasterizer::FoveationInfo Rasterizer::GetFoveationInfo() const {
     if (!instance.IsShadingRateAttachmentEnabled()) {
         return {};

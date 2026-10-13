@@ -82,6 +82,10 @@ public:
     };
     FoveationInfo GetFoveationInfo() const;
 
+    /// The Steam Frame's foveation (SHADPS4_FOVEATION): out to where its maps shade every
+    /// pixel around where the eyes look, as a share of the way to the picture's edge.
+    static float EyeFoveationInner();
+
     /// Draws of the last frame (between the last two calls of OnFrame).
     u32 LastFrameDraws() const {
         return last_frame_draws;
