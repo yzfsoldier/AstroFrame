@@ -22,10 +22,12 @@
 # The most frames a second (60 is the console's own). Left out: as many as the pace makes.
 #fps=
 
-# The size the game draws its scene at, per eye: 816 (x870), 960 (x1080), 1200 (x1280),
-# 1440 (x1536), larger widths (1800, 2160 ... as on the PC, with the GPU time and memory that
-# takes), or game for the game's own choice. Left out: the emulator chooses, as large as the GPU
-# manages at the pace.
+# The size the game draws its scene at, per eye. 816 (x870), 960 (x1080), 1200 (x1280) and
+# 1440 (x1536) hold it at that size. A larger width (1600, 1800, 2016, 2160 ... up to 4320) is
+# the largest the emulator may choose: it still chooses as large as the GPU manages at the pace,
+# from sizes all grown by the same factor (at 1800 they go from 1020x1088 to 1800x1920), with
+# the GPU time and memory that takes. game: the game's own choice. Left out: the emulator
+# chooses, up to 1440x1536.
 #resolution=
 
 # How much of the headset's field of view the game draws, in percent, 50 to 100: less puts the

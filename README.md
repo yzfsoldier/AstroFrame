@@ -227,7 +227,7 @@ key and its default are explained in the file. The most useful:
 | `eye_tracking=1` | with foveation on, the sharp middle follows your eyes (the Frame's eye tracking, through SteamVR); `0` keeps it in the middle of the picture |
 | `overlay=0` | `1`: a debug overlay in the headset (frame rate, frame time, display rate, scene size, GPU load, draws, foveation, gaze) |
 | `foveation_colors=0` | `1`: foveation's rings in colour over the picture (green: every pixel, yellow: 2x2, red: 4x4) and a mark where you look |
-| `resolution=` | the size of the scene per eye: `816`, `960`, `1200`, `1440`, larger widths, or `game`; empty: the emulator chooses, as large as the GPU manages (at most 1440x1536) |
+| `resolution=` | the size of the scene per eye: `816`, `960`, `1200`, `1440` hold it there; a larger width (`1600`, `1800`, `2016`, `2160` ...) lets the emulator go up to that, still only as large as the GPU manages (sharper where the GPU has time to spare, as in the first levels); `game`: the game's choice; empty: the emulator chooses, as large as the GPU manages (at most 1440x1536) |
 | `msaa=1` | the most samples a pixel gets: 1 (the default) is fastest, the emulator smooths edges itself; `4` lets the game multisample as on the console, for more GPU time |
 | `fov=85` | how much of the headset's field of view the game draws (50-100): less is sharper, with a soft border |
 | `sharpen=0.6` | sharpening, 0-1 |
