@@ -204,6 +204,17 @@ As on the Quest and the PC (see [README-ORIGINAL.md](README-ORIGINAL.md) for all
 
 ## Settings
 
+Before the game starts, a settings menu appears in the headset with the most used settings:
+
+<img src="steam-frame/images/menu.png" alt="The settings menu" width="640">
+
+The stick of either controller (up/down) chooses a line; left/right, or A or a trigger, changes
+its value; **Start** writes the choices into `settings.txt` and starts the game. Settings given in
+the Steam launch options (`ASTROQUEST_<KEY>`, below) are shown greyed and win over the menu.
+`menu=0` (in the menu: "This menu at start: Skip") starts the game straight away; `menu=1` in
+`settings.txt` brings the menu back. Without a headset or OpenXR runtime the game starts as set,
+and what the menu did is in `menu.txt` beside the other logs.
+
 `settings.txt` next to `astroquest.sh` (in the uploaded folder), one `key=value` a line; every
 key and its default are explained in the file. The most useful:
 
@@ -223,6 +234,7 @@ key and its default are explained in the file. The most useful:
 | `refresh_rate=90` | the display rate asked for, where the runtime lets a program choose. SteamVR on the Frame offers only 72 Hz to programs at the moment, which gives 36 frames a second |
 | `language=` | the game's language (`de-DE`, `fr-FR` ...); empty: the system's |
 | `window=1` | also open a window (for a Linux PC with a headset) |
+| `menu=1` | the settings menu in the headset before the game; `0` skips it |
 
 The same keys can be set without editing the file, in the game's Steam launch options, where
 they also survive a new upload: `ASTROQUEST_FOVEATION=2 ASTROQUEST_RESOLUTION=1200 %command%`.
@@ -293,7 +305,8 @@ settings names another folder), outside the uploaded folder, so a new upload lea
 - `user/log/shad_log.txt` - the emulator's log: the OpenXR runtime and headset it found
   (`Headset found through ...`), what the runtime offers, the frame rate and where its time goes
   every few seconds, the size the scene is drawn at and how busy the GPU is, sound, microphone,
-  controllers. `console.txt` is what it printed. The `.prev` files are the run before.
+  controllers. `console.txt` is what it printed, `menu.txt` what the settings menu did. The
+  `.prev` files are the run before.
 
 What to look for:
 
@@ -357,7 +370,9 @@ the eyes, is the one used; the pipelines are made for either.
   not name it (`net.cpp`), `SYS_faccessat2` named where the headers do not (`main.cpp`), and a
   missing `MREMAP_DONTUNMAP` for FEX (`steam-frame/fex-old-glibc.patch`).
 - `steam-frame/`: `build.sh`, `toolchain-aarch64-cross.cmake`, `fex-old-glibc.patch`,
-  `astroquest.sh` (the launcher), `settings.txt`.
+  `astroquest.sh` (the launcher), `settings.txt`, `deploy.sh`, and `menu/astroquest_menu.cpp`:
+  the settings menu (`astroquest-menu`, built with `ENABLE_STEAM_FRAME`), a separate OpenXR
+  program showing a panel (a quad layer drawn on the processor) before the emulator starts.
 
 **Running**
 

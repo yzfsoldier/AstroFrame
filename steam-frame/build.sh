@@ -278,7 +278,7 @@ build_core() {
         -DSDL_X11_XCURSOR=OFF -DSDL_X11_XDBE=OFF -DSDL_X11_XINPUT=OFF -DSDL_X11_XFIXES=OFF \
         -DSDL_X11_XRANDR=OFF -DSDL_X11_XSCRNSAVER=OFF -DSDL_X11_XSHAPE=OFF -DSDL_X11_XSYNC=OFF \
         -DSDL_X11_XTEST=OFF
-    cmake --build "$out" --target shadps4 --parallel "$jobs"
+    cmake --build "$out" --target shadps4 astroquest-menu --parallel "$jobs"
 }
 
 # --- the package --------------------------------------------------------------------------------
@@ -294,6 +294,14 @@ package() {
     local strip_tool=llvm-strip
     command -v "llvm-strip-${clang_c#clang-}" >/dev/null && strip_tool="llvm-strip-${clang_c#clang-}"
     command -v "$strip_tool" >/dev/null && "$strip_tool" --strip-debug "$dist/bin/shadps4" || true
+    # The settings menu in the headset (the game starts without it where it is missing).
+    if [[ -x "$build/core/astroquest-menu" ]]; then
+        cp "$build/core/astroquest-menu" "$dist/bin/astroquest-menu"
+        command -v "$strip_tool" >/dev/null && "$strip_tool" --strip-debug "$dist/bin/astroquest-menu" || true
+        chmod +x "$dist/bin/astroquest-menu"
+    else
+        say "No settings menu built ($build/core/astroquest-menu): the package goes without it"
+    fi
     cp "$here/astroquest.sh" "$dist/astroquest.sh"
     cp "$here/settings.txt" "$dist/settings.txt"
     cp "$root/README.md" "$dist/README.md"

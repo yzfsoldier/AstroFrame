@@ -40,5 +40,5 @@ fi
 # The package's settings: as settings.txt where there is none yet, beside it otherwise.
 remote "cat > '$dest/settings.default.txt'" < "$src/settings.txt"
 remote "[ -f '$dest/settings.txt' ] || cp '$dest/settings.default.txt' '$dest/settings.txt'"
-remote "chmod +x '$dest/astroquest.sh' '$dest/bin/shadps4'"
+remote "chmod +x '$dest/astroquest.sh' '$dest/bin/shadps4'; [ -f '$dest/bin/astroquest-menu' ] && chmod +x '$dest/bin/astroquest-menu'; true"
 echo "[deploy] done: start $dest/astroquest.sh (as a Non-Steam game, or from a shell there)"

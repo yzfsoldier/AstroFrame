@@ -4,6 +4,11 @@
 # options, as ASTROQUEST_<KEY>=value %command% (ASTROQUEST_FOV=90 %command%), which win over
 # this file.
 
+# The settings menu shown in the headset before the game: the most used of these settings, chosen
+# with a controller's stick (up/down: a line, left/right or A/trigger: its value); "Start" writes
+# them here and starts the game. 0: start the game straight away (menu=1 brings the menu back).
+#menu=1
+
 # The display refresh rate to ask the headset for (72, 90, 120, 144), where its runtime lets a
 # program choose; otherwise the rate set in SteamVR applies. It decides which frame rates the
 # game can keep in step with the display: 45 or 30 frames a second at 90 Hz, 60, 40 or 30 at

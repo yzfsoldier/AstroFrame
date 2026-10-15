@@ -17,7 +17,11 @@ say() { printf '[AstroQuest] %s\n' "$*"; }
 
 declare -A settings=()
 extra_env=()
-if [[ -f "$here/settings.txt" ]]; then
+load_settings() {
+    settings=()
+    extra_env=()
+    [[ -f "$here/settings.txt" ]] || return 0
+    local line key value
     while IFS= read -r line || [[ -n "$line" ]]; do
         line=${line%$'\r'}
         line=${line#$'\xef\xbb\xbf'}
@@ -31,7 +35,8 @@ if [[ -f "$here/settings.txt" ]]; then
             settings[$key]=$value
         fi
     done < "$here/settings.txt"
-fi
+}
+load_settings
 
 # setting <key> [default]: ASTROQUEST_<KEY> first, then settings.txt, then the default.
 setting() {
@@ -97,15 +102,29 @@ if [[ ! -f "$game_dir/sce_module/libc.prx" ]]; then
 fi
 
 emulator="$here/bin/shadps4"
+menu="$here/bin/astroquest-menu"
 # An upload from Windows (or through a folder of Windows') can lose the files' executable bit:
-# given back here, for the emulator and for this script, so that the next start needs no bash
-# in front of it either.
-for file in "$emulator" "$here/astroquest.sh"; do
+# given back here, for the emulator, the menu and this script, so that the next start needs no
+# bash in front of it either.
+for file in "$emulator" "$menu" "$here/astroquest.sh"; do
     if [[ -f "$file" && ! -x "$file" ]]; then
         chmod +x "$file" 2>/dev/null && say "made $(basename "$file") executable again"
     fi
 done
 [[ -x "$emulator" ]] || { say "$emulator is missing: build it with steam-frame/build.sh"; exit 1; }
+
+# The settings menu in the headset: what is chosen there goes into settings.txt, read again
+# here. menu=0 skips it; without a headset (or the menu program) the game starts as set.
+if [[ "$check_only" == 0 && "$(setting menu 1)" != 0 && -x "$menu" ]]; then
+    say "Settings menu in the headset (menu=0 in settings.txt skips it)"
+    [[ -f "$here/settings.txt" ]] || : > "$here/settings.txt"
+    "$menu" "$here/settings.txt" > "$data/user/log/menu.txt" 2>&1
+    case $? in
+        0) load_settings ;;
+        2) say "No menu: no headset or OpenXR runtime ($data/user/log/menu.txt)" ;;
+        *) say "The menu failed: $data/user/log/menu.txt" ;;
+    esac
+fi
 
 # The emulator's own settings: a log in a file, and controllers read while its window (if it has
 # one) is not in front. Only what is set here; it fills in the rest itself.

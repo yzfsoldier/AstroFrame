@@ -1369,6 +1369,11 @@ if (ENABLE_STEAM_FRAME)
     if (NOT MSVC)
         target_link_options(shadps4 PRIVATE -static-libstdc++)
     endif()
+    # The settings menu shown in the headset before the game (steam-frame/menu).
+    add_executable(astroquest-menu ${CMAKE_CURRENT_SOURCE_DIR}/../steam-frame/menu/astroquest_menu.cpp)
+    target_compile_features(astroquest-menu PRIVATE cxx_std_20)
+    target_link_libraries(astroquest-menu PRIVATE OpenXR::openxr_loader Vulkan::Headers ${CMAKE_DL_LIBS})
+    target_link_options(astroquest-menu PRIVATE -static-libstdc++)
 endif()
 # The GPU of a phone or standalone headset (Adreno, with Mesa's Turnip): it shares the system's
 # memory, so the caches plan with a share of the machine's memory rather than with what the
